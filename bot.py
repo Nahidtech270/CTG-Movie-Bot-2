@@ -16,6 +16,7 @@ except RuntimeError:
 from pyrogram import Client
 import config
 
+# প্রিমিয়াম নিয়ন ডার্ক মিনি অ্যাপ টেমপ্লেট
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -197,11 +198,9 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), DummyWebServer)
     print(f"ওয়েব সার্ভার এবং মিনি অ্যাপ পোর্ট {port}-এ চালু হয়েছে।")
-    server.forever = server.serve_forever() # For older compatibility
+    server.serve_forever()
 
-# Daemon Thread-এ সার্ভার সচল করা
-t = threading.Thread(target=run_web_server, daemon=True)
-t.start()
+threading.Thread(target=run_web_server, daemon=True).start()
 
 plugins = dict(root="plugins")
 
