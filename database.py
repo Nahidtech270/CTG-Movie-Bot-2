@@ -3,6 +3,7 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 import config
+import re  # re.escape ব্যবহারের জন্য ইম্পোর্ট করা হয়েছে
 
 client1 = AsyncIOMotorClient(config.DATABASE_URI)
 db1 = client1["movie_search_bot"]
@@ -25,7 +26,7 @@ async def get_active_files_collection():
         if data_size_mb > 100:
             return files_col2
     except Exception as e:
-        print(f"Primary DB Check Failed, switching to DB1 default: {e}")
+        print(f"Primary DB Check Failed: {e}")
     return files_col1
 
 async def add_user(user_id, username, first_name):
@@ -54,13 +55,25 @@ async def save_file(file_name, file_size, file_id, chat_id, message_id):
         return True
     return False
 
+# --- আপগ্রেডকৃত অ্যান্ড সার্চ লজিক (যা নামের মাঝে স্পেস বা ডটের ভুল সংশোধন করবে) ---
 async def search_db(query):
+    words = query.strip().split()
+    if not words:
+        return []
+    
+    # প্রতিটি শব্দের জন্য আলাদা রেগুলার এক্সপ্রেশন তৈরি করে অ্যান্ড (AND) কুয়েরি চালানো হচ্ছে
+    regex_list = [{"file_name": {"$regex": re.escape(w), "$options": "i"}} for w in words]
+    query_filter = {"$and": regex_list} if len(regex_list) > 1 else regex_list[0]
+    
     results = []
-    cursor1 = files_col1.find({"file_name": {"$regex": query, "$options": "i"}}).limit(30)
+    # ১ম ডাটাবেজে সার্চ
+    cursor1 = files_col1.find(query_filter).limit(30)
     async for doc in cursor1:
         results.append(doc)
+        
+    # ২য় ডাটাবেজে সার্চ (MULTIPLE_DB সচল থাকলে)
     if config.MULTIPLE_DB and files_col2:
-        cursor2 = files_col2.find({"file_name": {"$regex": query, "$options": "i"}}).limit(30)
+        cursor2 = files_col2.find(query_filter).limit(30)
         async for doc in cursor2:
             if not any(d['file_id'] == doc['file_id'] for d in results):
                 results.append(doc)
