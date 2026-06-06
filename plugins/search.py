@@ -8,22 +8,9 @@ from pyrogram.enums import ChatType
 from pyrogram.errors import UserNotParticipant
 from database import search_db, get_file_by_db_id, add_user
 import config
-from urllib.parse import quote
 
 FILES_PER_PAGE = 5
 
-# --- নয়েজ ওয়ার্ড রিমুভার (ইউজার অতিরিক্ত শব্দ যেমন movie, full, hd লিখলে তা রিমুভ করবে) ---
-def clean_search_query(query: str) -> str:
-    cleaned = query.lower().replace(".", " ").replace("-", " ")
-    noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
-    words = cleaned.split()
-    if len(words) > 1:
-        cleaned_words = [w for w in words if w not in noise_words]
-        if cleaned_words:
-            return " ".join(cleaned_words)
-    return query
-
-# --- ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে প্রমোশন লিংক ডিলিট করবে) ---
 def clean_movie_title(name: str) -> str:
     name = re.sub(r'@[a-zA-Z0-9_]+', '', name)
     name = re.sub(r'(https?://)?(t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_\+]+', '', name)
@@ -35,17 +22,15 @@ def clean_movie_title(name: str) -> str:
          name = "Movie File"
     return name.strip()
 
-# --- ৫ মিনিট পর ফাইল স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_file(message: Message):
-    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
+    await asyncio.sleep(300) # ৫ মিনিট পর ডিলিট
     try:
         await message.delete()
     except:
         pass
 
-# --- গ্রুপে বটের রিপ্লাই ১ মিনিট পর ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_group_reply(message: Message):
-    await asyncio.sleep(60) # ৬০ সেকেন্ড = ১ মিনিট
+    await asyncio.sleep(60) # ১ মিনিট পর ডিলিট
     try:
         await message.delete()
     except:
@@ -79,44 +64,76 @@ async def main_handler(client: Client, message: Message):
             except Exception as e:
                 print(f"FSub Error: {e}")
 
-            # মিনি অ্যাপ থেকে ডাউনলোড লিংক নিয়ে ফিরে আসলে
+            # --- ২. সিকিউরিটি চেক এবং ফাইল ডেলিভারি ---
             if len(text.split()) > 1:
-                file_db_id = text.split()[1]
-                file_data = await get_file_by_db_id(file_db_id)
+                start_param = text.split()[1]
                 
-                if file_data:
-                    try:
-                        raw_name = file_data["file_name"]
-                        cleaned_name = clean_movie_title(raw_name)
-                        file_size = round(file_data["file_size"] / (1024 * 1024), 2)
-                        
-                        caption_text = (
-                            f"🎬 **ফাইলের নাম:** `{cleaned_name}`\n"
-                            f"💾 **ফাইলের সাইজ:** `{file_size} MB`\n\n"
-                            f"📢 **চ্যানেল লিংকসমূহ নিচে দেওয়া হলো:**\n"
-                            f"👉 আমাদের সাথে ব্যাকআপ চ্যানেলে যুক্ত থাকুন।\n\n"
-                            f"⚠️ **নিরাপত্তা সতর্কবার্তা:**\n"
-                            f"কপিরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
-                        )
-                        
-                        promo_buttons = [
-                            [InlineKeyboardButton("🍿 All Movie Link", url=config.CHANNEL_LINK_1)],
-                            [InlineKeyboardButton("📢 Join Backup Channel", url=config.CHANNEL_LINK_2)]
-                        ]
-                        
-                        sent_file = await client.send_cached_media(
-                            chat_id=message.chat.id,
-                            file_id=file_data["file_id"],
-                            caption=caption_text,
-                            reply_markup=InlineKeyboardMarkup(promo_buttons)
-                        )
-                        asyncio.create_task(auto_delete_file(sent_file))
-                    except Exception as e:
-                        await message.reply_text(f"❌ দুঃখিত, ফাইলটি পাঠানো যাচ্ছে না: {str(e)}")
+                # ক. ইউজার যদি বিজ্ঞাপন দেখে আসল চাবি 'get_' সহ ফিরে আসে (১০০% ইনকাম নিশ্চিত)
+                if start_param.startswith("get_"):
+                    file_db_id = start_param.replace("get_", "")
+                    file_data = await get_file_by_db_id(file_db_id)
+                    
+                    if file_data:
+                        try:
+                            raw_name = file_data["file_name"]
+                            cleaned_name = clean_movie_title(raw_name)
+                            file_size = round(file_data["file_size"] / (1024 * 1024), 2)
+                            
+                            caption_text = (
+                                f"🎬 **ফাইলের নাম:** `{cleaned_name}`\n"
+                                f"💾 **ফাইলের সাইজ:** `{file_size} MB`\n\n"
+                                f"📢 **চ্যানেল লিংকসমূহ নিচে দেওয়া হলো:**\n"
+                                f"👉 আমাদের সাথে ব্যাকআপ চ্যানেলে যুক্ত থাকুন।\n\n"
+                                f"⚠️ **নিরাপত্তা সতর্কবার্তা:**\n"
+                                f"কপিরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
+                            )
+                            
+                            promo_buttons = [
+                                [InlineKeyboardButton("🍿 All Movie Link", url=config.CHANNEL_LINK_1)],
+                                [InlineKeyboardButton("📢 Join Backup Channel", url=config.CHANNEL_LINK_2)]
+                            ]
+                            
+                            sent_file = await client.send_cached_media(
+                                chat_id=message.chat.id,
+                                file_id=file_data["file_id"],
+                                caption=caption_text,
+                                reply_markup=InlineKeyboardMarkup(promo_buttons)
+                            )
+                            asyncio.create_task(auto_delete_file(sent_file))
+                        except Exception as e:
+                            await message.reply_text(f"❌ দুঃখিত, ফাইলটি পাঠানো যাচ্ছে না: {str(e)}")
+                    else:
+                        await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
+                    return
+                
+                # খ. ইউজার যদি গ্রুপ থেকে সরাসরি বটের চ্যাটে আসে (এখনো বিজ্ঞাপন দেখেনি)
                 else:
-                    await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
-                return
+                    file_db_id = start_param
+                    file_data = await get_file_by_db_id(file_db_id)
+                    
+                    if file_data:
+                        file_name = clean_movie_title(file_data["file_name"])
+                        # ইউআরএল স্যানিটাইজার
+                        raw_url = config.WEB_URL.strip().replace("https://", "").replace("http://", "").rstrip("/")
+                        web_app_url = f"https://{raw_url}/download?id={file_db_id}"
+                        
+                        # সরাসরি ফাইল না পাঠিয়ে বিজ্ঞাপন দেখার মিনি অ্যাপ বাটনটি পাঠানো হলো
+                        buttons = [
+                            [InlineKeyboardButton(
+                                text="🍿 Open Web App to Download",
+                                web_app=WebAppInfo(url=web_app_url)
+                            )]
+                        ]
+                        await message.reply_text(
+                            f"🎬 **ফাইলের নাম:** `{file_name}`\n\n"
+                            f"👉 ফাইলটি ডাউনলোড করার জন্য নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি আনলক করুন।",
+                            reply_markup=InlineKeyboardMarkup(buttons)
+                        )
+                    else:
+                        await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
+                    return
 
+            # সাধারণ স্টার্ট কমান্ড
             try:
                 await add_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
             except:
@@ -133,7 +150,7 @@ async def main_handler(client: Client, message: Message):
         if text.startswith("/"):
             return
 
-        # নয়েজ শব্দ রিমুভ করে ক্লিন কোয়েরি তৈরি করা হচ্ছে
+        # সাধারণ সার্চ কুয়েরি (PM চ্যাটে)
         query = clean_search_query(text)
         search_msg = await message.reply_text("🔍 খোঁজা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।")
         results = await search_db(query)
@@ -156,10 +173,10 @@ async def main_handler(client: Client, message: Message):
         results = await search_db(query)
         
         if not results:
-            return # গ্রুপে মুভি না পাওয়া গেলে বট শান্ত থাকবে
+            return
             
         buttons = []
-        for file in results[:5]: # গ্রুপে সর্বোচ্চ ৫টি বাটন শো করবে
+        for file in results[:5]:
             file_name = clean_movie_title(file["file_name"])
             file_size = round(file["file_size"] / (1024 * 1024), 2)
             db_id = str(file["_id"])
@@ -182,12 +199,10 @@ async def main_handler(client: Client, message: Message):
 
 # সার্চ রেজাল্ট পেজ আকারে সাজানো এবং ল্যাঙ্গুয়েজ ফিল্টারিং বাটন জেনারেশন ফাংশন
 async def send_search_results(message_or_query, results, query, page=0, lang="all"):
-    # --- ল্যাঙ্গুয়েজ ফিল্টার প্রসেস ---
     lang = lang.lower()
     filtered_results = []
     
     if lang == "bangla":
-        # বাংলা স্ক্রিপ্ট এবং ইংরেজি দুই নামেই ফিল্টার কাজ করবে (Bangla/Bengali/বাংলা/বেঙ্গলি)
         filtered_results = [f for f in results if any(k in f["file_name"].lower() for k in ["bangla", "bengali", "ben", "bng", "বাংলা", "বেঙ্গলি"])]
     elif lang == "hindi":
         filtered_results = [f for f in results if any(k in f["file_name"].lower() for k in ["hindi", "hin", "dual", "multi"])]
@@ -198,7 +213,7 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     elif lang == "telugu":
         filtered_results = [f for f in results if any(k in f["file_name"].lower() for k in ["telugu", "tel"])]
     else:
-        filtered_results = results # default show all
+        filtered_results = results
 
     total_results = len(filtered_results)
     
@@ -215,7 +230,6 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     end_index = start_index + FILES_PER_PAGE
     current_page_results = filtered_results[start_index:end_index]
     
-    # ইউআরএল স্যানিটাইজার
     raw_url = config.WEB_URL.strip()
     if raw_url.lower().startswith("https://"):
         raw_url = raw_url[8:]
@@ -236,7 +250,6 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
             web_app=WebAppInfo(url=web_app_url)
         )])
 
-    # ১. পেজিনেশন নেভিগেশন বাটন (পেজ পরিবর্তন করলেও ফিল্টারের ভাষা মনে রাখবে)
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("◀️ আগের", callback_data=f"page|{page - 1}|{query}|{lang}"))
@@ -250,8 +263,6 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     if nav_buttons:
         buttons.append(nav_buttons)
 
-    # ২. প্রফেশনাল ল্যাঙ্গুয়েজ ফিল্টার বাটন রো (Row)
-    # callback_data ফরম্যাট: lang|page_num|lang_name|query
     lang_row1 = [
         InlineKeyboardButton("🇧🇩 বাংলা/Bengali", callback_data=f"lang|0|bangla|{query}"),
         InlineKeyboardButton("🇮🇳 Hindi", callback_data=f"lang|0|hindi|{query}"),
@@ -278,7 +289,7 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
 # --- গ. কলব্যাক কুয়েরি হ্যান্ডলার (Callback Handler) ---
 # ==========================================
 
-# ১. পেজ নেভিগেশন বাটন ক্লিক (ল্যাঙ্গুয়েজ ফিল্টার অক্ষত রাখবে)
+# ১. পেজ নেভিগেশন বাটন ক্লিক
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -308,7 +319,7 @@ async def lang_click_handler(client: Client, callback_query):
 async def pages_info_click(client: Client, callback_query):
     await callback_query.answer("এটি বর্তমান পেজ নম্বর এবং ফিল্টার নির্দেশ করছে।", show_alert=False)
 
-# ৩. গ্রুপ ফাইল ক্লিক ভেরিফিকেশন (ইউজার-লকড মেকানিজম)
+# ৩. গ্রুপ ফাইল ক্লিক ভেরিফিকেশন
 @Client.on_callback_query(filters.regex(r"^gfile\|"))
 async def group_file_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -323,7 +334,7 @@ async def group_file_click_handler(client: Client, callback_query):
         )
         return
 
-    # সঠিক ইউজার ক্লিক করলে তাকে বটের ইনবক্সে মিনি অ্যাপ সোর্স লিংকে রিডাইরেক্ট করা হচ্ছে
+    # আসল ইউজার ক্লিক করলে তাকে বটের ইনবক্সে রিডাইরেক্ট করা হচ্ছে
     await callback_query.answer(
         url=f"https://t.me/{config.BOT_USERNAME}?start={file_db_id}"
     )
