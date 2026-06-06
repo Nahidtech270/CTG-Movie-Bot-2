@@ -1,14 +1,14 @@
+# database.py
+
 from motor.motor_asyncio import AsyncIOMotorClient
+from bson import ObjectId  # এটি নতুন যোগ করা হয়েছে
 import config
 
-# মঙ্গোডিবি কানেকশন সেটআপ
 client = AsyncIOMotorClient(config.MONGO_URI)
 db = client["movie_search_bot"]
 files_col = db["files"]
 
-# ডাটাবেজে নতুন ফাইল সেভ করার ফাংশন
 async def save_file(file_name, file_size, file_id, chat_id, message_id):
-    # একই ফাইল বারবার যাতে সেভ না হয়, তার জন্য চেক করা
     exists = await files_col.find_one({"file_id": file_id})
     if not exists:
         file_data = {
@@ -22,11 +22,17 @@ async def save_file(file_name, file_size, file_id, chat_id, message_id):
         return True
     return False
 
-# ডাটাবেজ থেকে মুভি সার্চ করার ফাংশন
 async def search_db(query):
     results = []
-    # কেস-ইনসেনসিটিভ সার্চ (বড় বা ছোট হাতের অক্ষরের তফাৎ করবে না)
     cursor = files_col.find({"file_name": {"$regex": query, "$options": "i"}}).limit(20)
     async for doc in cursor:
         results.append(doc)
     return results
+
+# নতুন ফাংশন: ছোট ডাটাবেজ আইডি দিয়ে ফাইল খোঁজার জন্য
+async def get_file_by_db_id(db_id):
+    try:
+        # string আইডিকে মঙ্গোডিবির ObjectId-তে রূপান্তর করা
+        return await files_col.find_one({"_id": ObjectId(db_id)})
+    except Exception:
+        return None
