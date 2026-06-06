@@ -16,7 +16,7 @@ except RuntimeError:
 from pyrogram import Client
 import config
 
-# প্রিমিয়াম নিয়ন ডার্ক মিনি অ্যাপ টেমপ্লেট
+# প্রিমিয়াম নিয়ন ডার্ক মিনি অ্যাপ টেমপ্লেট (Netflix Style)
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -143,7 +143,8 @@ HTML_TEMPLATE = """
         }}
 
         function getMovie() {{
-            tg.openTelegramLink("https://t.me/{bot_username}?start={file_db_id}");
+            // এখানে 'get_' চাবি বা পারমিশন যুক্ত করে বটের চ্যাটে ফেরত পাঠানো হচ্ছে
+            tg.openTelegramLink("https://t.me/{bot_username}?start=get_{file_db_id}");
             setTimeout(function() {{
                 tg.close();
             }}, 500);
