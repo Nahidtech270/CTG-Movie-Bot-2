@@ -27,23 +27,21 @@ async def index_start_cmd(client: Client, message: Message):
     INDEX_STATES[message.from_user.id] = True
     instructions = (
         "📥 **চ্যানেল ইনডেক্সিং কন্ট্রোল প্যানেল**\n\n"
-        "অন্য কোনো চ্যানেল থেকে সব মুভি ইনডেক্স করতে নিচের নিয়ম অনুসরণ করুন:\n\n"
+        "অন্য যেকোনো চ্যানেল থেকে সব মুভি ইনডেক্স করতে নিচের নিয়ম অনুসরণ করুন:\n\n"
         "১️⃣ প্রথমে নিশ্চিত করুন বটটি ওই চ্যানেলে **অ্যাডমিন (Admin)** হিসেবে যুক্ত আছে।\n"
         "২️⃣ এবার ওই চ্যানেলের **সর্বশেষ (Last) ফাইল বা মেসেজটি** এখানে ফরোয়ার্ড (Forward) করুন।\n\n"
         "👉 *ফাইলটি পাওয়ার পর বট স্বয়ংক্রিয়ভাবে পেছনের সমস্ত ফাইল ডাটাবেজে ইনডেক্স করা শুরু করবে।*"
     )
     await message.reply_text(instructions)
 
-# ২. ফরোয়ার্ড করা মেসেজ রিসিভ এবং প্রোগ্রেসিভ লাইভ লোডার ইনডেক্সিং
+# ২. ফরোয়ার্ড করা মেসেজ রিসিভ এবং প্রোগ্রেসিভ লাইভ লোডার ইনডেক্সিং (Bypass Method)
 @Client.on_message(filters.forwarded & filters.private & filters.user(config.ADMIN_ID))
 async def process_index_forward(client: Client, message: Message):
     user_id = message.from_user.id
     
-    # ইউজার /index কমান্ড দিয়েছে কিনা তা নিশ্চিত করা
     if not INDEX_STATES.get(user_id):
         return
 
-    # স্টেট রিসেট করা
     INDEX_STATES[user_id] = False
 
     if not message.forward_from_chat:
@@ -53,40 +51,57 @@ async def process_index_forward(client: Client, message: Message):
     chat_id = message.forward_from_chat.id
     last_msg_id = message.forward_from_message_id
 
-    status_msg = await message.reply_text("⏳ **ইনডেক্সিং কানেকশন তৈরি হচ্ছে... ডাটাবেজ চেক করা হচ্ছে।**")
+    status_msg = await message.reply_text("⏳ **ইনডেক্সিং সিকিউর কানেকশন তৈরি হচ্ছে...**")
     
     saved_count = 0
     scanned_count = 0
     
+    # আইডি ব্যাচিং লজিক (১০০টি করে মেসেজের আইডি তৈরি করে রিকোয়েস্ট পাঠানো)
+    chunk_size = 100
+    current_id = last_msg_id
+
     try:
-        # পেছনের দিকে সমস্ত মেসেজ স্ক্যান করা হচ্ছে
-        async for msg in client.get_chat_history(chat_id, offset_id=last_msg_id + 1):
-            scanned_count += 1
+        while current_id > 0:
+            # পেছনের দিকে ১০০টি মেসেজের আইডি জেনারেট করা
+            start_id = max(1, current_id - chunk_size + 1)
+            msg_ids = list(range(start_id, current_id + 1))
             
-            # ভিডিও এবং ডকুমেন্ট দুই ধরনের ফাইলই ইনডেক্স হবে
-            if msg.document or msg.video:
-                file = msg.document or msg.video
-                saved = await save_file(
-                    file_name=file.file_name,
-                    file_size=file.file_size,
-                    file_id=file.file_id,
-                    chat_id=chat_id,
-                    message_id=msg.id
-                )
-                if saved:
-                    saved_count += 1
+            # টেলিগ্রাম সার্ভার থেকে নির্দিষ্ট আইডি-র মেসেজগুলো রিসিভ করা (এটি সম্পূর্ণ অনুমোদিত)
+            messages_batch = await client.get_messages(chat_id, msg_ids)
             
-            # প্রতি ৫০টি মেসেজ স্ক্যান করার পর এডমিনকে স্ক্রিনে লাইভ কাউন্ট আপডেট দেখানো (লোডার সিস্টেম)
-            if scanned_count % 50 == 0:
-                await status_msg.edit_text(
-                    f"⏳ **মুভি ইনডেক্সিং চলমান রয়েছে...**\n\n"
-                    f"🔎 স্ক্যান করা মেসেজ: `{scanned_count}` টি\n"
-                    f"📥 নতুন সংরক্ষিত মুভি: `{saved_count}` টি\n\n"
-                    f"⚙️ *অনুগ্রহ করে সম্পূর্ণ শেষ হওয়া পর্যন্ত অপেক্ষা করুন।*"
-                )
-                await asyncio.sleep(1) # টেলিগ্রামের রেট লিমিট এড়াতে বিরতি
+            # ব্যাচ মেসেজগুলো প্রসেস করা (পেছনের ক্রমানুসারে)
+            for msg in reversed(messages_batch):
+                scanned_count += 1
                 
-        # সম্পূর্ণ ইনডেক্স শেষ হওয়ার ফাইনাল মেসেজ
+                # যদি মেসেজটি ডিলিট করা বা খালি থাকে
+                if not msg or msg.empty:
+                    continue
+                
+                if msg.document or msg.video:
+                    file = msg.document or msg.video
+                    saved = await save_file(
+                        file_name=file.file_name,
+                        file_size=file.file_size,
+                        file_id=file.file_id,
+                        chat_id=chat_id,
+                        message_id=msg.id
+                    )
+                    if saved:
+                        saved_count += 1
+            
+            # প্রতি ব্যাচ শেষে স্ক্রিনে লাইভ প্রোগ্রেস লোডার আপডেট
+            await status_msg.edit_text(
+                f"⏳ **মুভি ইনডেক্সিং চলমান রয়েছে (Secure Method)...**\n\n"
+                f"🔎 স্ক্যান করা মেসেজ: `{scanned_count}`/`{last_msg_id}` টি\n"
+                f"📥 নতুন সংরক্ষিত মুভি: `{saved_count}` টি\n\n"
+                f"⚙️ *অনুগ্রহ করে সম্পূর্ণ শেষ হওয়া পর্যন্ত অপেক্ষা করুন।*"
+            )
+            
+            # পরবর্তী ব্যাচের জন্য আইডি সেট করা
+            current_id -= chunk_size
+            await asyncio.sleep(1.5) # টেলিগ্রামের ফ্লাড ওয়েট / রেট লিমিট এড়াতে ১.৫ সেকেন্ড বিরতি
+
+        # সফলতার চূড়ান্ত মেসেজ
         await status_msg.edit_text(
             f"🎉 **ইনডেক্সিং সফলভাবে সম্পন্ন হয়েছে!**\n\n"
             f"📊 **চূড়ান্ত রিপোর্ট:**\n"
