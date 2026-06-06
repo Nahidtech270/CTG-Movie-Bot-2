@@ -1,3 +1,15 @@
+# bot.py
+
+import asyncio
+
+# পাইথনের নতুন ভার্সনে Pyrogram এর ইভেন্ট লুপ এরর এড়ানোর জন্য এই কোডটুকু অবশ্যই শুরুতে রাখতে হবে
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+# এরপরে বাকি জিনিসগুলো ইম্পোর্ট হবে
 from pyrogram import Client
 import config
 
