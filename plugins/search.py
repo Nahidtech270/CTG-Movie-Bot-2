@@ -2,49 +2,64 @@
 
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from database import search_db, get_file_by_db_id, add_user
+import config
 
-# প্রতি পৃষ্ঠায় কয়টি করে মুভি বাটন দেখাবে
 FILES_PER_PAGE = 5
 
 @Client.on_message(filters.text & filters.private)
 async def main_handler(client: Client, message: Message):
     text = message.text.strip()
 
-    # --- ১. যদি মেসেজটি '/start' হয় (সার্চ ফিল্টারের ভেতর কমান্ড হ্যান্ডলিং) ---
+    # --- ১. মিনি অ্যাপের "Get Movie" বাটনে ক্লিক করে ফিরে আসলে ফাইল ডেলিভারি ---
     if text.startswith("/start"):
-        # ব্যাকগ্রাউন্ডে ইউজার সেভ করা
-        try:
-            await add_user(
-                user_id=message.from_user.id,
-                username=message.from_user.username,
-                first_name=message.from_user.first_name
-            )
-        except Exception as e:
-            print(f"User save error: {e}")
+        # যদি ইউজার মিনি অ্যাপ থেকে কোনো ফাইলের আইডি নিয়ে ফিরে আসে
+        if len(text.split()) > 1:
+            file_db_id = text.split()[1]
+            file_data = await get_file_by_db_id(file_db_id)
+            
+            if file_data:
+                try:
+                    file_name = file_data["file_name"]
+                    file_size = round(file_data["file_size"] / (1024 * 1024), 2)
+                    caption_text = (
+                        f"🎬 **ফাইলের নাম:** `{file_name}`\n"
+                        f"💾 **ফাইলের সাইজ:** `{file_size} MB`\n\n"
+                        f"⚡️ *CTG Movie Bot-এর মাধ্যমে ডাউনলোড করার জন্য ধন্যবাদ!*"
+                    )
+                    # ইউজারকে সরাসরি ফাইল পাঠানো হচ্ছে
+                    await client.send_cached_media(
+                        chat_id=message.chat.id,
+                        file_id=file_data["file_id"],
+                        caption=caption_text
+                    )
+                except Exception as e:
+                    await message.reply_text(f"❌ দুঃখিত, ফাইলটি পাঠানো যাচ্ছে না: {str(e)}")
+            else:
+                await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
+            return
 
-        # স্বাগত বার্তা পাঠানো
+        # সাধারণ স্টার্ট কমান্ড হলে স্টার্ট মেসেজ
+        try:
+            await add_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
+        except:
+            pass
+
         welcome_text = (
             f"👋 **হ্যালো {message.from_user.first_name or 'ইউজার'}!**\n\n"
             f"🎬 **CTG Movie সার্চ বটে আপনাকে স্বাগতম!**\n"
-            f"এখানে আপনি আপনার পছন্দের যেকোনো মুভি ও ওয়েব সিরিজ পেয়ে যাবেন খুবই দ্রুত।\n\n"
-            f"📢 **কিভাবে মুভি খুঁজবেন?**\n"
-            f"বটের ইনবক্সে সরাসরি যেকোনো মুভির নাম লিখে মেসেজ পাঠান।\n"
-            f"💡 *যেমন:* `RRR` অথবা `KGF` লিখে পাঠান।\n\n"
-            f"⚠️ *সহজ অনুসন্ধানের জন্য মুভির সঠিক বানানটি লেখার অনুরোধ রইল।*"
+            f"বটের ইনবক্সে সরাসরি যেকোনো মুভির নাম লিখে মেসেজ পাঠান।"
         )
         await message.reply_text(welcome_text)
         return
 
-    # --- ২. যদি অন্য কোনো এডমিন কমান্ড হয় (যা / দিয়ে শুরু) ---
     if text.startswith("/"):
-        return # এডমিন কমান্ডগুলো plugins/admin.py হ্যান্ডেল করবে
+        return
 
-    # --- ৩. সাধারণ মেসেজ হলে মুভি সার্চ করা ---
+    # --- ২. মুভি সার্চ ও মিনি অ্যাপ বাটন জেনারেট ---
     query = text
     search_msg = await message.reply_text("🔍 খোঁজা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।")
-    
     results = await search_db(query)
     
     if not results:
@@ -52,12 +67,9 @@ async def main_handler(client: Client, message: Message):
         return
 
     await search_msg.delete()
-    
-    # প্রথম পেজ (Page 0) জেনারেট করা
     await send_search_results(message, results, query, page=0)
 
 
-# সার্চ রেজাল্ট পেজ আকারে সাজানোর ফাংশন
 async def send_search_results(message_or_query, results, query, page=0):
     total_results = len(results)
     start_index = page * FILES_PER_PAGE
@@ -70,9 +82,14 @@ async def send_search_results(message_or_query, results, query, page=0):
         file_name = file["file_name"]
         file_size = round(file["file_size"] / (1024 * 1024), 2)
         db_id = str(file["_id"])
-        buttons.append([InlineKeyboardButton(f"🎬 {file_name} [{file_size} MB]", callback_data=f"file_{db_id}")])
+        
+        # এখানে সাধারণ কলব্যাক বাটনের বদলে 'web_app' বাটন ব্যবহার করা হয়েছে, যা আপনার Render লিংকে ভিজিট করবে
+        web_app_url = f"https://{config.WEB_URL}/download?id={db_id}&title={file_name}"
+        buttons.append([InlineKeyboardButton(
+            text=f"🎬 {file_name} [{file_size} MB]",
+            web_app=WebAppInfo(url=web_app_url)
+        )])
 
-    # নেভিগেশন বাটন (Previous / Next) তৈরি
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("◀️ আগের", callback_data=f"page|{page - 1}|{query}"))
@@ -94,8 +111,7 @@ async def send_search_results(message_or_query, results, query, page=0):
     else:
         await message_or_query.message.edit_text(text, reply_markup=reply_markup)
 
-
-# পেজ পরিবর্তনের বাটন ক্লিক হ্যান্ডলার
+# পেজ নেভিগেশন হ্যান্ডলার (এটি আগের মতোই কাজ করবে)
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -107,34 +123,6 @@ async def page_click_handler(client: Client, callback_query):
         await send_search_results(callback_query, results, query, page=target_page)
     await callback_query.answer()
 
-
 @Client.on_callback_query(filters.regex(r"^pages_info$"))
 async def pages_info_click(client: Client, callback_query):
     await callback_query.answer("এটি বর্তমান পেজ নম্বর নির্দেশ করছে।", show_alert=False)
-
-
-# ফাইল ডেলিভারি বাটন ক্লিক হ্যান্ডলার
-@Client.on_callback_query(filters.regex(r"^file_"))
-async def send_file(client: Client, callback_query):
-    file_db_id = callback_query.data.split("_")[1]
-    file_data = await get_file_by_db_id(file_db_id)
-    
-    if file_data:
-        try:
-            file_name = file_data["file_name"]
-            file_size = round(file_data["file_size"] / (1024 * 1024), 2)
-            caption_text = (
-                f"🎬 **ফাইলের নাম:** `{file_name}`\n"
-                f"💾 **ফাইলের সাইজ:** `{file_size} MB`\n\n"
-                f"⚡️ *CTG Movie Bot-এর মাধ্যমে ডাউনলোড করার জন্য ধন্যবাদ!*"
-            )
-            await client.send_cached_media(
-                chat_id=callback_query.message.chat.id,
-                file_id=file_data["file_id"],
-                caption=caption_text
-            )
-            await callback_query.answer()
-        except Exception as e:
-            await callback_query.answer(f"সমস্যা: {str(e)}", show_alert=True)
-    else:
-        await callback_query.answer("ফাইলটি ডাটাবেজে পাওয়া যায়নি!", show_alert=True)
