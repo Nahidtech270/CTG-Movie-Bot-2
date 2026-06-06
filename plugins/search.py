@@ -9,15 +9,31 @@ import config
 
 FILES_PER_PAGE = 5
 
+# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে শুধুমাত্র লিংক ডিলিট করবে) ---
 def clean_movie_title(name: str) -> str:
+    # ১. টেলিগ্রামের ইউজারনেম মুছে ফেলা (@username)
     name = re.sub(r'@[a-zA-Z0-9_]+', '', name)
-    name = re.sub(r'(https?://)?(t\.me|telegram\.me)/[a-zA-Z0-9_\+]+', '', name)
-    name = re.sub(r'(https?://)?(www\.)?[a-zA-Z0-9-]+\.[a-zA-Z0-9.]+', '', name)
+    
+    # ২. টেলিগ্রামের লিংক মুছে ফেলা (t.me/... বা telegram.me/...)
+    name = re.sub(r'(https?://)?(t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_\+]+', '', name)
+    
+    # ৩. শুধুমাত্র সুনির্দিষ্ট ডোমেইন এক্সটেনশনগুলো মুছে ফেলা (যাতে মুভির সাধারণ ডট অক্ষত থাকে)
+    domain_extensions = "com|org|net|xyz|club|co|tv|link|info|me|cc|site|space|click|in|online|icu"
+    name = re.sub(r'\b[a-zA-Z0-9-]+\.(' + domain_extensions + r')\b', '', name, flags=re.IGNORECASE)
+    
+    # ৪. অতিরিক্ত স্পেস বা হাইফেন পরিষ্কার করা
+    name = re.sub(r'\s*-\s*$', '', name) # শেষের অতিরিক্ত হাইফেন ডিলিট
     name = name.replace("__", "_").replace("..", ".").replace("  ", " ")
+    
+    # যদি কোনো কারণে নাম সম্পূর্ণ খালি হয়ে যায়, তবে ব্যাকআপ নাম
+    if not name.strip():
+         name = "Movie File"
+         
     return name.strip()
 
+# --- ৫ মিনিট পর পাঠানো ফাইলটি স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_file(message: Message):
-    await asyncio.sleep(300) # ৫ মিনিট পর ডিলিট
+    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
     try:
         await message.delete()
     except Exception as e:
@@ -106,7 +122,6 @@ async def send_search_results(message_or_query, results, query, page=0):
     
     current_page_results = results[start_index:end_index]
     
-    # ইউআরএল স্যানিটাইজার
     raw_url = config.WEB_URL.strip()
     if raw_url.lower().startswith("https://"):
         raw_url = raw_url[8:]
@@ -117,15 +132,12 @@ async def send_search_results(message_or_query, results, query, page=0):
     
     buttons = []
     for file in current_page_results:
+        # সার্চ রেজাল্টেও যাতে অন্যের ইউজারনেম/লিংক না দেখায় তার জন্য ক্লিন করা হচ্ছে
         file_name = clean_movie_title(file["file_name"])
         file_size = round(file["file_size"] / (1024 * 1024), 2)
         db_id = str(file["_id"])
         
-        # ইউআরএলটি এখন অত্যন্ত ছোট ও নিরাপদ (কোনো স্পেশাল ক্যারেক্টার সমস্যা করবে না)
         web_app_url = f"https://{raw_url}/download?id={db_id}"
-        
-        # ডিবাগ করার জন্য আপনি লগে লিংকটি দেখতে পারবেন
-        print(f"DEBUG WebApp URL: {web_app_url}")
         
         buttons.append([InlineKeyboardButton(
             text=f"🎬 {file_name} [{file_size} MB]",
