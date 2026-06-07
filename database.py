@@ -9,6 +9,7 @@ client1 = AsyncIOMotorClient(config.DATABASE_URI)
 db1 = client1["movie_search_bot"]
 files_col1 = db1["files"]
 users_col = db1["users"]
+requests_col = db1["requests"]  # মুভি রিকোয়েস্টের নতুন কালেকশন
 
 client2 = None
 files_col2 = None
@@ -44,7 +45,7 @@ async def add_user(user_id, username, first_name):
 async def save_file(file_name, file_size, file_id, chat_id, message_id):
     active_col = await get_active_files_collection()
     
-    # ডাবল ভেরিফিকেশন চেক: আইডি মিললে অথবা নাম ও সাইজ উভয়ই হুবহু মিললে ডুপ্লিকেট ধরা হবে
+    # ডুপ্লিকেট চেক
     exists = await active_col.find_one({
         "$or": [
             {"file_id": file_id},
@@ -52,7 +53,6 @@ async def save_file(file_name, file_size, file_id, chat_id, message_id):
         ]
     })
     
-    # ফাইলটি ডুপ্লিকেট না হলেই কেবল ডাটাবেজে সেভ হবে
     if not exists:
         file_data = {
             "file_name": file_name,
@@ -62,9 +62,9 @@ async def save_file(file_name, file_size, file_id, chat_id, message_id):
             "message_id": message_id
         }
         await active_col.insert_one(file_data)
-        return True # সফলভাবে সেভ হয়েছে
+        return True
         
-    return False # ডুপ্লিকেট ফাইল হওয়ায় স্বয়ংক্রিয়ভাবে স্কিপ করা হয়েছে
+    return False
 
 # অ্যান্ড সার্চ লজিক
 async def search_db(query):
@@ -125,3 +125,16 @@ async def get_all_users():
     async for doc in cursor:
         users.append(doc["user_id"])
     return users
+
+# --- নতুন মুভি রিকোয়েস্ট সেভ করার লজিক (নতুন) ---
+async def save_movie_request(user_id, query):
+    # একই ইউজার একই মুভি অলরেডি পেন্ডিং রিকোয়েস্ট আকারে রেখেছে কিনা চেক করা
+    exists = await requests_col.find_one({"user_id": user_id, "query": query, "status": "pending"})
+    if not exists:
+        await requests_col.insert_one({
+            "user_id": user_id,
+            "query": query,
+            "status": "pending"
+        })
+        return True
+    return False
