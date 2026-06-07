@@ -18,7 +18,7 @@ from pyrogram import Client
 import config
 
 # ২. আল্ট্রা-প্রিমিয়াম নিয়ন আরজিবি মিনি অ্যাপ টেমপ্লেট (Netflix/Glowing Style)
-# Template লাইব্রেরি ব্যবহারের ফলে এখন সমস্ত ব্র্যাকেট সাধারণ { এবং } হিসেবে থাকবে, কোনো এরর আসবে না।
+# এখানে লাইভ মুভি ফাইল সংখ্যা এবং সক্রিয় ইউজারের জন্য দুটি আকর্ষণীয় নিয়ন কাউন্টার যুক্ত করা হয়েছে।
 HTML_TEMPLATE = Template("""
 <!DOCTYPE html>
 <html lang="en">
@@ -67,7 +67,7 @@ HTML_TEMPLATE = Template("""
             font-size: 28px; 
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
+            letter-spacing: 1px;
             text-shadow: 0 0 12px rgba(255, 0, 85, 0.4);
         }
         
@@ -90,6 +90,7 @@ HTML_TEMPLATE = Template("""
         .info-label { color: #9ca3af; }
         .info-value { color: #ffffff; font-weight: 600; }
         .info-value.neon-green { color: #00ff88; text-shadow: 0 0 8px rgba(0, 255, 136, 0.2); }
+        .info-value.neon-blue { color: #00f0ff; text-shadow: 0 0 8px rgba(0, 240, 255, 0.2); }
         
         .step-card {
             background: rgba(255, 255, 255, 0.04);
@@ -254,14 +255,19 @@ HTML_TEMPLATE = Template("""
     <div id="app-content" class="container" style="display: none;">
         <h2>CTG PREMIUM SEARCH</h2>
         
+        <!-- লাইভ স্ট্যাটাস সমৃদ্ধ ইনফরমেশন কার্ড -->
         <div class="info-card">
             <div class="info-row">
-                <span class="info-label">🚀 Download Speed:</span>
-                <span class="info-value">1 Gbps Unlimited</span>
+                <span class="info-label">📊 Database Inventory:</span>
+                <span class="info-value neon-blue">$total_files+ Movies</span>
             </div>
             <div class="info-row">
-                <span class="info-label">🛡 Safety Status:</span>
-                <span class="info-value neon-green">Safe & Verified ✅</span>
+                <span class="info-label">👥 Active Connected Users:</span>
+                <span class="info-value neon-green">$total_users+ Online</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">🚀 Server Port Speed:</span>
+                <span class="info-value">1 Gbps Unlimited</span>
             </div>
             <div class="info-row">
                 <span class="info-label">🌐 Server Status:</span>
@@ -295,11 +301,24 @@ class DummyWebServer(SimpleHTTPRequestHandler):
             
             ad_link = random.choice(config.DIRECT_AD_LINKS)
             
-            # string.Template এর safe_substitute ব্যবহার করে ডেটা রিপ্লেস করা হচ্ছে (১০০% সুরক্ষিত)
+            # --- ৩. মঙ্গোডিবি থেকে রিয়েল-টাইম লাইভ ডাটা সংগ্রহ মেকানিজম (Thread-Safe) ---
+            total_files, total_users = 0, 0
+            if app.loop and app.loop.is_running():
+                try:
+                    from database import get_stats
+                    # বটের মূল ইভেন্ট লুপে থ্রেড-সেফ উপায়ে লাইভ স্ট্যাটাস রান করা হচ্ছে
+                    future = asyncio.run_coroutine_threadsafe(get_stats(), app.loop)
+                    total_files, total_users = future.result(timeout=2) # ২ সেকেন্ড সর্বোচ্চ টাইমআউট সেফটি
+                except Exception as e:
+                    print(f"Failed to fetch live stats for WebApp: {e}")
+            
+            # ডাইনামিক লাইভ ডাটা দিয়ে টেমপ্লেট রিপ্লেস
             response_html = HTML_TEMPLATE.safe_substitute(
                 file_db_id=file_db_id,
                 bot_username=config.BOT_USERNAME,
-                ad_link=ad_link
+                ad_link=ad_link,
+                total_files=f"{total_files:,}", # সংখ্যায় কমা ফরম্যাট যুক্ত করা হয়েছে (যেমন: ১২,৫৪০)
+                total_users=f"{total_users:,}"
             )
             
             self.send_response(200)
