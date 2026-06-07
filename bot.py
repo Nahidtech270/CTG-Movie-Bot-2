@@ -6,7 +6,7 @@ import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 import random
-from string import Template  # ব্র্যাকেট এরর এড়াতে পাইথনের টেমপ্লেট লাইব্রেরি ইম্পোর্ট করা হয়েছে
+from string import Template
 
 try:
     asyncio.get_event_loop()
@@ -17,8 +17,6 @@ except RuntimeError:
 from pyrogram import Client
 import config
 
-# ২. আল্ট্রা-প্রিমিয়াম নিয়ন আরজিবি মিনি অ্যাপ টেমপ্লেট (Netflix/Glowing Style)
-# এখানে লাইভ মুভি ফাইল সংখ্যা এবং সক্রিয় ইউজারের জন্য দুটি আকর্ষণীয় নিয়ন কাউন্টার যুক্ত করা হয়েছে।
 HTML_TEMPLATE = Template("""
 <!DOCTYPE html>
 <html lang="en">
@@ -26,7 +24,6 @@ HTML_TEMPLATE = Template("""
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Movie</title>
-    <!-- টেলিগ্রামের অফিশিয়াল ওয়েব অ্যাপ স্ক্রিপ্ট -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -42,7 +39,6 @@ HTML_TEMPLATE = Template("""
             min-height: 95vh;
         }
         
-        /* আরজিবি পালসিং বর্ডার অ্যানিমেশন */
         @keyframes borderGlow {
             0% { border-color: rgba(255, 0, 85, 0.4); box-shadow: 0 0 15px rgba(255, 0, 85, 0.2); }
             50% { border-color: rgba(0, 240, 255, 0.4); box-shadow: 0 0 15px rgba(0, 240, 255, 0.2); }
@@ -67,11 +63,10 @@ HTML_TEMPLATE = Template("""
             font-size: 28px; 
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
             text-shadow: 0 0 12px rgba(255, 0, 85, 0.4);
         }
         
-        /* প্রফেশনাল ফাইল ইনফরমেশন কার্ড */
         .info-card {
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.05);
@@ -104,7 +99,6 @@ HTML_TEMPLATE = Template("""
             line-height: 1.4;
         }
         
-        /* বাটন স্টাইলিং ও অ্যানিমেশন */
         .btn {
             display: block;
             width: 100%;
@@ -155,7 +149,6 @@ HTML_TEMPLATE = Template("""
             box-shadow: 0 0 15px rgba(0, 255, 136, 0.1);
         }
         
-        /* আর্নিং সাপোর্ট নোটিশ */
         .support-note {
             font-size: 11px;
             color: #6b7280;
@@ -164,7 +157,6 @@ HTML_TEMPLATE = Template("""
             text-align: center;
         }
         
-        /* স্ক্যানিং লোডার স্ক্রিন */
         #loader {
             display: flex;
             flex-direction: column;
@@ -255,7 +247,6 @@ HTML_TEMPLATE = Template("""
     <div id="app-content" class="container" style="display: none;">
         <h2>CTG PREMIUM SEARCH</h2>
         
-        <!-- লাইভ স্ট্যাটাস সমৃদ্ধ ইনফরমেশন কার্ড -->
         <div class="info-card">
             <div class="info-row">
                 <span class="info-label">📊 Database Inventory:</span>
@@ -299,25 +290,31 @@ class DummyWebServer(SimpleHTTPRequestHandler):
             query_params = parse_qs(parsed_url.query)
             file_db_id = query_params.get("id", [""])[0]
             
-            ad_link = random.choice(config.DIRECT_AD_LINKS)
+            # --- ডাইনামিক অ্যান্টি-ব্লক সল্টিং মেকানিজম ---
+            base_ad = random.choice(config.DIRECT_AD_LINKS)
+            rand_id = random.randint(100000, 999999)
+            rand_click = random.randint(1000000, 9999999)
             
-            # --- ৩. মঙ্গোডিবি থেকে রিয়েল-টাইম লাইভ ডাটা সংগ্রহ মেকানিজম (Thread-Safe) ---
+            # লিংকের শেষে ডাইনামিক সল্ট বসানো হচ্ছে (যাতে প্রতিবার লিংকটি টেলিগ্রামের কাছে নতুন মনে হয়)
+            if "?" in base_ad:
+                ad_link = f"{base_ad}&click_id={rand_click}&sub_id={rand_id}"
+            else:
+                ad_link = f"{base_ad}?click_id={rand_click}&sub_id={rand_id}"
+            
             total_files, total_users = 0, 0
             if app.loop and app.loop.is_running():
                 try:
                     from database import get_stats
-                    # বটের মূল ইভেন্ট লুপে থ্রেড-সেফ উপায়ে লাইভ স্ট্যাটাস রান করা হচ্ছে
                     future = asyncio.run_coroutine_threadsafe(get_stats(), app.loop)
-                    total_files, total_users = future.result(timeout=2) # ২ সেকেন্ড সর্বোচ্চ টাইমআউট সেফটি
+                    total_files, total_users = future.result(timeout=2)
                 except Exception as e:
-                    print(f"Failed to fetch live stats for WebApp: {e}")
+                    print(f"Failed to fetch live stats: {e}")
             
-            # ডাইনামিক লাইভ ডাটা দিয়ে টেমপ্লেট রিপ্লেস
             response_html = HTML_TEMPLATE.safe_substitute(
                 file_db_id=file_db_id,
                 bot_username=config.BOT_USERNAME,
                 ad_link=ad_link,
-                total_files=f"{total_files:,}", # সংখ্যায় কমা ফরম্যাট যুক্ত করা হয়েছে (যেমন: ১২,৫৪০)
+                total_files=f"{total_files:,}",
                 total_users=f"{total_users:,}"
             )
             
@@ -334,7 +331,7 @@ class DummyWebServer(SimpleHTTPRequestHandler):
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), DummyWebServer)
-    print(f"ওয়েব সার্ভার এবং মিনি অ্যাপ পোর্ট {port}-এ চালু হয়েছে।")
+    print(f"ওয়েব সার্ভার চালু হয়েছে পোর্ট {port}-এ।")
     server.serve_forever()
 
 t = threading.Thread(target=run_web_server, daemon=True)
