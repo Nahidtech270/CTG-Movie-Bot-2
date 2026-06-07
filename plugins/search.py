@@ -3,12 +3,13 @@
 import asyncio
 import re
 import difflib
-from pyrogram import Client, filters, ContinuePropagation  # ContinuePropagation ইম্পোর্ট করা হয়েছে
+from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatType
 from pyrogram.errors import UserNotParticipant, MessageNotModified
 from database import search_db, get_file_by_db_id, add_user, save_movie_request
 import config
+from urllib.parse import quote
 
 FILES_PER_PAGE = 5
 
@@ -56,19 +57,18 @@ async def auto_delete_group_reply(message: Message):
     except:
         pass
 
-# --- মাল্টি-ওয়ার্ড ক্যান্ডিডেট ম্যাচিং এআই স্পেলিং চেকার (২ লাখ ফাইলের জন্য অপ্টিমাইজড) ---
+# --- মাল্টি-ওয়ার্ড ক্যান্ডিডেট ম্যাচিং এআই স্পেলিং চেকার ---
 async def get_close_match_from_db(query: str):
     try:
         from database import files_col1, files_col2
         
-        # ৩ অক্ষরের চেয়ে বড় শব্দগুলো আলাদা করা
         words = [w for w in query.strip().split() if len(w) >= 3]
         if not words:
             return None
             
         name_map = {}
         
-        # জাদুকরী $or ফিল্টার
+        # $or ফিল্টার: সার্চের যেকোনো ১টি শব্দের মিল পেলেই ডাটাবেজ থেকে ক্যান্ডিডেট নিয়ে আসবে
         query_filter = {"$or": [{"file_name": {"$regex": re.escape(w), "$options": "i"}} for w in words]}
         
         cursor = files_col1.find(query_filter, {"file_name": 1}).limit(1000)
@@ -109,13 +109,40 @@ def clean_search_query(query: str) -> str:
             return " ".join(cleaned_words)
     return query
 
+# --- প্রফেশনাল এআই প্রগ্রেসিভ সার্চ ইঞ্জিন (wrong year/language হ্যান্ডলার) ---
+async def advanced_search_db(query: str):
+    # ১. প্রথমে সাধারণ নিয়মে অ্যান্ড সার্চ করা হচ্ছে
+    results = await search_db(query)
+    if results:
+        return results, query
+        
+    # ২. মিল না পাওয়া গেলে ৪ ডিজিটের সাল (যেমন: 2024) বাদ দিয়ে সার্চ করা হচ্ছে
+    words = query.strip().split()
+    if len(words) > 1:
+        no_years = [w for w in words if not (w.isdigit() and len(w) == 4)]
+        if len(no_years) < len(words) and no_years:
+            new_query = " ".join(no_years)
+            results = await search_db(new_query)
+            if results:
+                return results, new_query
+                
+    # ৩. তাও মিল না পাওয়া গেলে শেষের দিক থেকে একটি করে শব্দ ডিলিট করে রিলাক্সড সার্চ করা হচ্ছে
+    temp_words = list(words)
+    while len(temp_words) > 1:
+        temp_words.pop() # শেষের শব্দটি ড্রপ করা হলো
+        new_query = " ".join(temp_words)
+        results = await search_db(new_query)
+        if results:
+            return results, new_query
+            
+    return [], query
+
 
 @Client.on_message(filters.text)
 async def main_handler(client: Client, message: Message):
     text = message.text.strip()
     user_id = message.from_user.id
 
-    # --- এডমিন বা ইনডেক্সিং কমান্ড হলে অন্য ফাইলে পাস করে দেওয়া হচ্ছে (Continue Propagation) ---
     if text.startswith("/") and not text.startswith("/start"):
         raise ContinuePropagation
 
@@ -165,7 +192,7 @@ async def main_handler(client: Client, message: Message):
                                 f"📢 **চ্যানেল লিংকসমূহ নিচে দেওয়া হলো:**\n"
                                 f"👉 আমাদের সাথে ব্যাকআপ চ্যানেলে যুক্ত থাকুন।\n\n"
                                 f"⚠️ **নিরাপত্তা সতর্কবার্তা:**\n"
-                                f"কপিরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
+                                f"কпиরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
                             )
                             
                             promo_buttons = [
@@ -264,20 +291,17 @@ async def main_handler(client: Client, message: Message):
             asyncio.create_task(auto_delete_search_messages(message, welcome_msg))
             return
 
-        # --- সাধারণ সার্চ কুয়েরি (PM চ্যাটে) ---
-        query = text
-        cleaned_text = text.lower().replace(".", " ").replace("-", " ")
-        noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
-        words = cleaned_text.split()
-        if len(words) > 1:
-            cleaned_words = [w for w in words if w not in noise_words]
-            if cleaned_words:
-                query = " ".join(cleaned_words)
+        if text.startswith("/"):
+            return
 
+        # --- সাধারণ সার্চ কুয়েরি (PM চ্যাটে) ---
+        query = clean_search_query(text)
         search_msg = await message.reply_text("🔍 খোঁজা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।")
-        results = await search_db(query)
         
-        # --- ১. এআই স্পেলিং কারেক্টর লজিক (PM চ্যাটের জন্য - ২ লাখ ফাইলের জন্য অপ্টিমাইজড) ---
+        # ডাইনামিক প্রগ্রেসিভ সার্চ রান করা হচ্ছে (wrong year/language সমাধান)
+        results, matched_query = await advanced_search_db(query)
+        
+        # --- ১. এআই স্পেলিং কারেক্টর লজিক (PM চ্যাটের জন্য) ---
         if not results:
             await search_msg.edit_text("🤖 **ভুল বানান শনাক্ত হয়েছে! AI বানান সংশোধন করছে...**")
             await asyncio.sleep(1.5) 
@@ -292,7 +316,7 @@ async def main_handler(client: Client, message: Message):
                 await asyncio.sleep(1.5) 
                 
                 # সাজেস্টেড নাম দিয়ে অটো-সার্চ
-                corrected_results = await search_db(closest_match)
+                corrected_results, _ = await advanced_search_db(closest_match)
                 if corrected_results:
                     await search_msg.delete()
                     results_msg = await send_search_results(message, corrected_results, closest_match, page=0, lang="all")
@@ -312,7 +336,7 @@ async def main_handler(client: Client, message: Message):
             return
 
         await search_msg.delete()
-        results_msg = await send_search_results(message, results, query, page=0, lang="all")
+        results_msg = await send_search_results(message, results, matched_query, page=0, lang="all")
         asyncio.create_task(auto_delete_search_messages(message, results_msg))
 
     # ==========================================
@@ -322,18 +346,10 @@ async def main_handler(client: Client, message: Message):
         if text.startswith("/"):
             return
             
-        query = text
-        cleaned_text = text.lower().replace(".", " ").replace("-", " ")
-        noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
-        words = cleaned_text.split()
-        if len(words) > 1:
-            cleaned_words = [w for w in words if w not in noise_words]
-            if cleaned_words:
-                query = " ".join(cleaned_words)
-
-        results = await search_db(query)
+        query = clean_search_query(text)
+        results, matched_query = await advanced_search_db(query)
         
-        # --- ২. এআই স্পেলিং কারেক্টর লজিক (গ্রুপ চ্যাটের জন্য - ২ লাখ ফাইলের জন্য অপ্টিমাইজড) ---
+        # --- ২. এআই স্পেলিং কারেক্টর লজিক (গ্রুপ চ্যাটের জন্য) ---
         if not results:
             closest_match = await get_close_match_from_db(query)
             if closest_match:
@@ -359,7 +375,7 @@ async def main_handler(client: Client, message: Message):
             return
             
         # গ্রুপ চ্যাটের ভেতরেই প্রথম পেজের ফলাফল প্রেরণ
-        group_reply = await send_group_results(message, results, query, page=0, searcher_id=user_id)
+        group_reply = await send_group_results(message, results, matched_query, page=0, searcher_id=user_id)
         asyncio.create_task(auto_delete_group_reply(group_reply))
 
 
@@ -581,9 +597,9 @@ async def premium_info_click_handler(client: Client, callback_query):
 async def tsearch_click_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
     await callback_query.message.delete()
-    results = await search_db(query)
+    results, matched_query = await advanced_search_db(query)
     if results:
-        results_msg = await send_search_results(callback_query.message, results, query, page=0, lang="all")
+        results_msg = await send_search_results(callback_query.message, results, matched_query, page=0, lang="all")
         asyncio.create_task(auto_delete_search_messages(callback_query.message, results_msg))
     else:
         await callback_query.answer("দুঃখিত, কোনো ফাইল পাওয়া যায়নি!", show_alert=True)
@@ -623,9 +639,9 @@ async def group_page_click_handler(client: Client, callback_query):
         )
         return
         
-    results = await search_db(query)
+    results, matched_query = await advanced_search_db(query)
     if results:
-        await send_group_results(callback_query, results, query, page=target_page, searcher_id=searcher_id)
+        await send_group_results(callback_query, results, matched_query, page=target_page, searcher_id=searcher_id)
     await callback_query.answer()
 
 # ৮. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search - গ্রুপ চ্যাটের জন্য - ইউজার লকড)
@@ -644,9 +660,10 @@ async def gtsearch_click_handler(client: Client, callback_query):
         return
         
     await callback_query.message.delete()
-    results = await search_db(query)
+    results, matched_query = await advanced_search_db(query)
     if results:
-        group_reply = await send_group_results(callback_query, results, query, page=0, searcher_id=searcher_id)
+        # গ্রুপ রেজাল্ট পাঠানো
+        group_reply = await send_group_results(callback_query, results, matched_query, page=0, searcher_id=searcher_id)
         asyncio.create_task(auto_delete_group_reply(group_reply))
     else:
         await callback_query.answer("দুঃখিত, কোনো ফাইল পাওয়া যায়নি!", show_alert=True)
