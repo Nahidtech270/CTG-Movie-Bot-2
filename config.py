@@ -15,7 +15,7 @@ DATABASE_URI2 = "mongodb+srv://..."
 BOT_USERNAME = "CTGMovieBot"  # আপনার বটের ইউজারনেম ( শুরুতে @ দেবেন না)
 WEB_URL = "gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/CTG-Movie-Bot"  # Koyeb অ্যাপের লিংক ( শুরুতে https:// দেবেন না)
 
-# আপনার বিজ্ঞপ্তির ডিরেক্ট লিংক (Adsterra-র আসল লিংক বসানো হয়েছে)
+# আপনার আয়ের ডিরেক্ট অ্যাড লিংক (এখানে Adsterra-র আসল লিংক বসানো হয়েছে)
 DIRECT_AD_LINKS = [
     "https://www.effectivecpmnetwork.com/m30pd1efbm?key=e7b1df640000086bd44393a929d6ebab",
     "https://www.effectivecpmnetwork.com/jxuaz5zk?key=6faf197d33f98bcb3bc070b020c19664"
@@ -26,5 +26,4 @@ CHANNEL_LINK_1 = "https://t.me/+6hvCoblt6CxhZjhl"  # All Movie Link
 CHANNEL_LINK_2 = "https://t.me/TGLinkBase"         # Backup Channel
 
 # --- নতুন ভিজ্যুয়াল ডিজাইন কনফিগারেশন ---
-# স্টার্ট কমান্ড দিলে যে ব্যানার বা অ্যানিমেটেড GIF দেখাবে (এখানে যেকোনো ডিরেক্ট ইমেজ বা GIF লিংক বসাতে পারবেন)
 START_BANNER = "https://github.com/NBBotz/Images/blob/main/Lucia-Filter-Bot.jpeg?raw=true"
