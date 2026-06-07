@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from fuzzywuzzy import process, fuzz
+from fuzzywuzzy import process, fuzz  # fuzz ইম্পোর্ট করা হয়েছে স্ট্রিক্ট সর্টিংয়ের জন্য
 from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatType
@@ -12,22 +12,31 @@ import config
 
 FILES_PER_PAGE = 5
 
-# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে প্রমোশন লিংক ও আন্ডারস্কোর ক্লিন করবে) ---
+# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে প্রমোশন লিংক ও ফালতু ফাইল এক্সটেনশন মুছে দেবে) ---
 def clean_movie_title(name: str) -> str:
     if not name or not isinstance(name, str):
         return "Movie File"
         
+    # ১. টেলিগ্রাম ইউজারনেম ও লিংক ডিলিট
     name = re.sub(r'@[a-zA-Z0-9_]+', '', name)
     name = re.sub(r'(https?://)?(t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_\+]+', '', name)
+    
+    # ২. ডোমেইন লিংক ডিলিট
     domain_extensions = "com|org|net|xyz|club|co|tv|link|info|me|cc|site|space|click|in|online|icu"
     name = re.sub(r'\b[a-zA-Z0-9-]+\.(' + domain_extensions + r')\b', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'\s*-\s*$', '', name)
-    # আন্ডারস্কোরকে নিখুঁতভাবে স্পেস দিয়ে রিপ্লেস করা হচ্ছে
-    name = name.replace("_", " ").replace("__", " ").replace("..", ".").replace("  ", " ")
     
-    if not name.strip():
+    # ৩. মুভি ফাইল এক্সটেনশন ডিলিট (যাতে .mkv বা .mp4 দেখতে আনপ্রফেশনাল না লাগে)
+    name = re.sub(r'\.(mkv|mp4|avi|webm|ts|m4v|3gp)$', '', name, flags=re.IGNORECASE)
+    
+    # ৪. নামের মাঝের সমস্ত ডট, আন্ডারস্কোর ও হাইফেন স্পেস দিয়ে প্রতিস্থাপন
+    name = name.replace(".", " ").replace("_", " ").replace("-", " ")
+    
+    # অতিরিক্ত ডাবল স্পেস ক্লিন করা
+    name = re.sub(r'\s+', ' ', name).strip()
+    
+    if not name:
          name = "Movie File"
-    return name.strip()
+    return name
 
 # --- ৫ মিনিট পর ফাইল স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_file(message: Message):
@@ -62,7 +71,7 @@ async def get_close_match_from_db(query: str):
     try:
         from database import files_col1, files_col2
         
-        # শব্দগুলো আলাদা করা (ডট, ড্যাশ ও আন্ডারস্কোর রিমুভ করে)
+        # ৩ অক্ষরের চেয়ে বড় শব্দগুলো আলাদা করা (ডট, ড্যাশ ও আন্ডারস্কোর রিমুভ করে)
         clean_q = query.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
         words = [w for w in clean_q.split() if len(w) >= 3]
         if not words:
@@ -70,9 +79,10 @@ async def get_close_match_from_db(query: str):
             
         name_map = {}
         
-        # ডাইনামিক $or ফিল্টার
+        # ডাইনামিক $or ফিল্টার (যেকোনো একটি শব্দের মিল পেলেই ক্যান্ডিডেট নিয়ে আসবে)
         query_filter = {"$or": [{"file_name": {"$regex": re.escape(w), "$options": "i"}} for w in words]}
         
+        # ১ম ডাটাবেজ থেকে ক্যান্ডিডেট মুভি আনা
         cursor = files_col1.find(query_filter, {"file_name": 1}).limit(1000)
         async for doc in cursor:
             fname = doc.get("file_name")
@@ -81,6 +91,7 @@ async def get_close_match_from_db(query: str):
                 normalized = cleaned.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
                 name_map[normalized] = cleaned
                 
+        # ২য় ডাটাবেজ সচল থাকলে
         if config.MULTIPLE_DB and files_col2:
             cursor2 = files_col2.find(query_filter, {"file_name": 1}).limit(1000)
             async for doc in cursor2:
@@ -93,8 +104,11 @@ async def get_close_match_from_db(query: str):
         if not name_map:
             return None
             
-        # fuzz.ratio ব্যবহার করে স্ট্রিক্ট ম্যাচ
-        best_match_tuple = process.extractOne(clean_q, list(name_map.keys()), scorer=fuzz.ratio)
+        # ইউজারের সার্চ কোয়েরি নরমাল করা হচ্ছে
+        query_norm = query.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
+        
+        # fuzz.ratio ব্যবহার করে স্ট্রিক্ট ম্যাচ (যাতে ছোট আংশিক নামের ফাইল বড় কোয়েরিকে ধোঁকা দিতে না পারে)
+        best_match_tuple = process.extractOne(query_norm, list(name_map.keys()), scorer=fuzz.ratio)
         
         if best_match_tuple:
             best_match, score = best_match_tuple
@@ -106,7 +120,7 @@ async def get_close_match_from_db(query: str):
         print(f"Fuzzy match error: {e}")
         return None
 
-# --- নয়েজ ওয়ার্ড রিমুভার (আন্ডারস্কোর স্যানিটাইজার সহ) ---
+# --- নয়েজ ওয়ার্ড রিমুভার (আন্ডারস্কোর ও ডট স্যানিটাইজার সহ) ---
 def clean_search_query(query: str) -> str:
     cleaned = query.lower().replace(".", " ").replace("-", " ").replace("_", " ")
     noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
@@ -380,7 +394,7 @@ async def main_handler(client: Client, message: Message):
         
         # গ্রুপ চ্যাটেও প্রথমে হুবহু অ্যান্ড সার্চ
         if results:
-            group_reply = await send_group_results(message, results, matched_query, page=0, searcher_id=user_id)
+            group_reply = await send_group_results(message, results, query, page=0, searcher_id=user_id)
             asyncio.create_task(auto_delete_group_reply(group_reply))
             return
             
