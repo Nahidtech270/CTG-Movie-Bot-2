@@ -8,25 +8,22 @@ from database import save_file
 
 INDEX_STATES = {}
 
-# --- রিকোয়েস্টকারী ইউজারকে মুভি আপলোড হওয়া মাত্র নোটিফাই করার অটোমেটিক টাস্ক (নতুন) ---
+# রিকোয়েস্টকারী ইউজারকে মুভি আপলোড হওয়া মাত্র নোটিফাই করার অটোমেটিক টাস্ক
 async def check_and_notify_requests(client: Client, file_name: str, file_db_id: str):
     try:
         from database import db1
         requests_col = db1["requests"]
         
-        # পেন্ডিং রিকোয়েস্টের তালিকা আনা
         cursor = requests_col.find({"status": "pending"})
         async for req in cursor:
             req_query = req["query"].lower().strip()
             
-            # যদি রিকোয়েস্ট করা নামটি সদ্য সেভ হওয়া ফাইলের নামের সাথে মিলে যায়
             if req_query in file_name.lower():
                 user_id = req["user_id"]
                 
                 from plugins.search import clean_movie_title
                 cleaned_name = clean_movie_title(file_name)
                 
-                # মিনি অ্যাপ লিংক তৈরি
                 raw_url = config.WEB_URL.strip().replace("https://", "").replace("http://", "").rstrip("/")
                 web_app_url = f"https://{raw_url}/download?id={file_db_id}"
                 
@@ -43,19 +40,16 @@ async def check_and_notify_requests(client: Client, file_name: str, file_db_id: 
                     f"👉 মুভিটি ডাউনলোড করতে নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি আনলক করুন।"
                 )
                 try:
-                    # ইউজারকে ইনবক্সে পার্সোনাল মেসেজ পাঠানো
                     await client.send_message(chat_id=user_id, text=text, reply_markup=InlineKeyboardMarkup(buttons))
-                    # স্ট্যাটাস পরিবর্তন করা
                     await requests_col.update_one({"_id": req["_id"]}, {"$set": {"status": "completed"}})
                 except Exception as e:
                     print(f"Failed to notify user {user_id}: {e}")
-                    # ইউজার বট ব্লক করে রাখলেও ডাটাবেজ ক্লিয়ার রাখতে কমপ্লিট করা হবে
                     await requests_col.update_one({"_id": req["_id"]}, {"$set": {"status": "completed"}})
     except Exception as e:
         print(f"Request notify error: {e}")
 
 
-# মেইন চ্যানেলের অটো-ইনডেক্সিং (আপলোড হওয়া মাত্র রিকোয়েস্ট চেক করবে)
+# মেইন চ্যানেলের অটো-ইনডেক্সিং
 @Client.on_message(filters.chat(config.MAIN_CHANNEL_ID) & (filters.document | filters.video))
 async def auto_index(client: Client, message: Message):
     file = message.document or message.video
@@ -67,14 +61,13 @@ async def auto_index(client: Client, message: Message):
         message_id=message.id
     )
     if saved:
-        # মঙ্গোডিবি থেকে ফাইলটির আইডি তুলে এনে নোটিফিকেশন পাঠানো হচ্ছে
         from database import files_col1
         doc = await files_col1.find_one({"file_id": file.file_id})
         if doc:
             asyncio.create_task(check_and_notify_requests(client, file.file_name, str(doc["_id"])))
 
 
-# ম্যানুয়াল ইনডেক্সিং (আইডি ব্যাচিং)
+# ম্যানুয়াল ইনডেক্সিং (Secure Batch ID Method)
 @Client.on_message(filters.command("index") & filters.user(config.ADMIN_ID) & filters.private)
 async def index_start_cmd(client: Client, message: Message):
     INDEX_STATES[message.from_user.id] = True
@@ -104,6 +97,7 @@ async def process_index_forward(client: Client, message: Message):
     status_msg = await message.reply_text("⏳ **ইনডেক্সিং কানেকশন তৈরি হচ্ছে...**")
     
     saved_count = 0
+    skipped_count = 0  # নতুন স্কিপড ডুপ্লিকেট কাউন্টার
     scanned_count = 0
     chunk_size = 100
     current_id = last_msg_id
@@ -129,16 +123,20 @@ async def process_index_forward(client: Client, message: Message):
                     )
                     if saved:
                         saved_count += 1
-                        # ম্যানুয়ালি ইনডেক্স করলেও স্বয়ংক্রিয়ভাবে রিকোয়েস্টকারী ইউজারকে ফাইলসহ মেসেজ পাঠাবে
                         from database import files_col1
                         doc = await files_col1.find_one({"file_id": file.file_id})
                         if doc:
                             asyncio.create_task(check_and_notify_requests(client, file.file_name, str(doc["_id"])))
-            
+                    else:
+                        skipped_count += 1 # ডুপ্লিকেট হলে কাউন্টার ১ করে বাড়বে
+
+            # লাইভ প্রোগ্রেস বার (রিয়েল-টাইম ডুপ্লিকেট স্কিপ কাউন্ট সহ)
             await status_msg.edit_text(
-                f"⏳ **মুভি ইনডেক্সিং চলমান রয়েছে...**\n\n"
+                f"⏳ **মুভি ইনডেক্সিং চলমান রয়েছে (Secure Method)...**\n\n"
                 f"🔎 স্ক্যান করা মেসেজ: `{scanned_count}`/`{last_msg_id}` টি\n"
-                f"📥 নতুন সংরক্ষিত মুভি: `{saved_count}` টি"
+                f"📥 নতুন সংরক্ষিত মুভি: `{saved_count}` টি\n"
+                f"♻️ ডুপ্লিকেট ফাইল স্কিপড: `{skipped_count}` টি\n\n"
+                f"⚙️ *অনুগ্রহ করে সম্পূর্ণ শেষ হওয়া পর্যন্ত অপেক্ষা করুন।*"
             )
             current_id -= chunk_size
             await asyncio.sleep(1.5)
@@ -147,7 +145,8 @@ async def process_index_forward(client: Client, message: Message):
             f"🎉 **ইনডেক্সিং সফলভাবে সম্পন্ন হয়েছে!**\n\n"
             f"📊 **চূড়ান্ত রিপোর্ট:**\n"
             f"🔎 মোট স্ক্যানকৃত মেসেজ: `{scanned_count}` টি\n"
-            f"📥 মোট ইনডেক্সকৃত মুভি: `{saved_count}` টি"
+            f"📥 মোট ইনডেক্সকৃত মুভি: `{saved_count}` টি\n"
+            f"♻️ মোট ডুপ্লিকেট ফাইল স্কিপড: `{skipped_count}` টি"
         )
     except Exception as e:
         await status_msg.edit_text(f"❌ ইনডেক্সিংয়ের সময় ত্রুটি ঘটেছে: `{str(e)}`")
