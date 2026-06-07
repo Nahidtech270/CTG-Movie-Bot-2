@@ -4,12 +4,13 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 import config
 import re
+import difflib  # সর্টিং বা সাজানোর জন্য এটি ইম্পোর্ট করা হয়েছে
 
 client1 = AsyncIOMotorClient(config.DATABASE_URI)
 db1 = client1["movie_search_bot"]
 files_col1 = db1["files"]
 users_col = db1["users"]
-requests_col = db1["requests"]  # মুভি রিকোয়েস্টের নতুন কালেকশন
+requests_col = db1["requests"]
 
 client2 = None
 files_col2 = None
@@ -41,7 +42,6 @@ async def add_user(user_id, username, first_name):
             "first_name": first_name
         })
 
-# --- আপগ্রেডকৃত ডুপ্লিকেট প্রটেকশন ফাইল সেভ লজিক ---
 async def save_file(file_name, file_size, file_id, chat_id, message_id):
     active_col = await get_active_files_collection()
     
@@ -66,7 +66,7 @@ async def save_file(file_name, file_size, file_id, chat_id, message_id):
         
     return False
 
-# অ্যান্ড সার্চ লজিক
+# অ্যান্ড সার্চ ও রিয়েল-টাইম সর্টিং লজিক
 async def search_db(query):
     words = query.strip().split()
     if not words:
@@ -85,6 +85,25 @@ async def search_db(query):
         async for doc in cursor2:
             if not any(d['file_id'] == doc['file_id'] for d in results):
                 results.append(doc)
+                
+    # --- স্মার্ট সর্টিং অ্যালগরিদম (যা আসল মুভিটি সবার উপরে নিয়ে আসবে) ---
+    def get_sort_key(doc):
+        name = doc["file_name"].lower()
+        q = query.lower()
+        
+        # ১. হুবহু মিললে (Exact Match) সবার আগে থাকবে (Priority 0)
+        if q == name:
+            return 0
+        # ২. সার্চের নাম দিয়ে শুরু হলে (Starts With) ২য় স্থানে থাকবে (Priority 1)
+        if name.startswith(q):
+            return 1
+        # ৩. সিমিলার নামের ফাইলগুলো ক্লোজনেসের হার অনুযায়ী সাজানো হবে (Priority 1.X থেকে 2)
+        ratio = difflib.SequenceMatcher(None, q, name).ratio()
+        return 2 - ratio
+
+    # পাইথনের দ্রুতগতির ইন-প্লেস সর্টিং ব্যবহার করা হয়েছে
+    results.sort(key=get_sort_key)
+    
     return results
 
 async def get_file_by_db_id(db_id):
@@ -126,9 +145,7 @@ async def get_all_users():
         users.append(doc["user_id"])
     return users
 
-# --- নতুন মুভি রিকোয়েস্ট সেভ করার লজিক (নতুন) ---
 async def save_movie_request(user_id, query):
-    # একই ইউজার একই মুভি অলরেডি পেন্ডিং রিকোয়েস্ট আকারে রেখেছে কিনা চেক করা
     exists = await requests_col.find_one({"user_id": user_id, "query": query, "status": "pending"})
     if not exists:
         await requests_col.insert_one({
