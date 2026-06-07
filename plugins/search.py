@@ -3,7 +3,7 @@
 import asyncio
 import re
 import difflib
-from pyrogram import Client, filters
+from pyrogram import Client, filters, ContinuePropagation  # ContinuePropagation ইম্পোর্ট করা হয়েছে
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatType
 from pyrogram.errors import UserNotParticipant, MessageNotModified
@@ -56,7 +56,7 @@ async def auto_delete_group_reply(message: Message):
     except:
         pass
 
-# --- আল্ট্রা-পাওয়ারফুল বানান ভুল সংশোধন সাজেশন মেকানিজম (যেকোনো শব্দের মিল পেলেই কাজ করবে) ---
+# --- মাল্টি-ওয়ার্ড ক্যান্ডিডেট ম্যাচিং এআই স্পেলিং চেকার (২ লাখ ফাইলের জন্য অপ্টিমাইজড) ---
 async def get_close_match_from_db(query: str):
     try:
         from database import files_col1, files_col2
@@ -68,10 +68,9 @@ async def get_close_match_from_db(query: str):
             
         name_map = {}
         
-        # জাদুকরী $or ফিল্টার: সার্চের যেকোনো ১টি শব্দের মিল পেলেই ডাটাবেজ থেকে ক্যান্ডিডেট নিয়ে আসবে
+        # জাদুকরী $or ফিল্টার
         query_filter = {"$or": [{"file_name": {"$regex": re.escape(w), "$options": "i"}} for w in words]}
         
-        # ১ম ডাটাবেজ থেকে ক্যান্ডিডেট মুভি আনা
         cursor = files_col1.find(query_filter, {"file_name": 1}).limit(1000)
         async for doc in cursor:
             fname = doc.get("file_name")
@@ -80,7 +79,6 @@ async def get_close_match_from_db(query: str):
                 normalized = cleaned.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
                 name_map[normalized] = cleaned
                 
-        # ২য় ডাটাবেজ সচল থাকলে
         if config.MULTIPLE_DB and files_col2:
             cursor2 = files_col2.find(query_filter, {"file_name": 1}).limit(1000)
             async for doc in cursor2:
@@ -90,10 +88,7 @@ async def get_close_match_from_db(query: str):
                     normalized = cleaned.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
                     name_map[normalized] = cleaned
         
-        # ইউজারের সার্চ কোয়েরি নরমাল করা হচ্ছে
         query_norm = query.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
-        
-        # ক্লোজ ম্যাচ তুলনা করা (এক ক্লিকে সঠিক ম্যাচটি খুঁজে বের করবে)
         matches = difflib.get_close_matches(query_norm, list(name_map.keys()), n=1, cutoff=0.35)
         
         if matches:
@@ -119,6 +114,10 @@ def clean_search_query(query: str) -> str:
 async def main_handler(client: Client, message: Message):
     text = message.text.strip()
     user_id = message.from_user.id
+
+    # --- এডমিন বা ইনডেক্সিং কমান্ড হলে অন্য ফাইলে পাস করে দেওয়া হচ্ছে (Continue Propagation) ---
+    if text.startswith("/") and not text.startswith("/start"):
+        raise ContinuePropagation
 
     # ==========================================
     # --- ক. পার্সোনাল চ্যাট হ্যান্ডলার (Private PM) ---
@@ -263,9 +262,6 @@ async def main_handler(client: Client, message: Message):
                 welcome_msg = await message.reply_text(welcome_text, reply_markup=InlineKeyboardMarkup(start_buttons))
 
             asyncio.create_task(auto_delete_search_messages(message, welcome_msg))
-            return
-
-        if text.startswith("/"):
             return
 
         # --- সাধারণ সার্চ কুয়েরি (PM চ্যাটে) ---
@@ -517,7 +513,7 @@ async def send_group_results(message_or_query, results, query, page=0, searcher_
 # --- গ. কলব্যাক কুয়েরি হ্যান্ডলার (Callback Handler) ---
 # ==========================================
 
-# ১. পেজ নেভিগেশন বাটন ক্লিক (PM চ্যাটের জন্য)
+# ১. পেজ নেভিগেশন বাটন ক্লিক
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -580,7 +576,7 @@ async def premium_info_click_handler(client: Client, callback_query):
     )
     await callback_query.answer(premium_text, show_alert=True)
 
-# ৫. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search - PM চ্যাটের জন্য)
+# ৫. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search)
 @Client.on_callback_query(filters.regex(r"^tsearch\|"))
 async def tsearch_click_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
@@ -650,7 +646,6 @@ async def gtsearch_click_handler(client: Client, callback_query):
     await callback_query.message.delete()
     results = await search_db(query)
     if results:
-        # গ্রুপ রেজাল্ট পাঠানো
         group_reply = await send_group_results(callback_query, results, query, page=0, searcher_id=searcher_id)
         asyncio.create_task(auto_delete_group_reply(group_reply))
     else:
