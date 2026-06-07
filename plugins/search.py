@@ -11,31 +11,35 @@ import config
 
 FILES_PER_PAGE = 5
 
-# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে শুধুমাত্র লিংক ডিলিট করবে) ---
+# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন ---
 def clean_movie_title(name: str) -> str:
-    # ১. টেলিগ্রামের ইউজারনেম মুছে ফেলা (@username)
     name = re.sub(r'@[a-zA-Z0-9_]+', '', name)
-    
-    # ২. টেলিগ্রামের লিংক মুছে ফেলা (t.me/... বা telegram.me/...)
     name = re.sub(r'(https?://)?(t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_\+]+', '', name)
-    
-    # ৩. শুধুমাত্র সুনির্দিষ্ট ডোমেইন এক্সটেনশনগুলো মুছে ফেলা
     domain_extensions = "com|org|net|xyz|club|co|tv|link|info|me|cc|site|space|click|in|online|icu"
     name = re.sub(r'\b[a-zA-Z0-9-]+\.(' + domain_extensions + r')\b', '', name, flags=re.IGNORECASE)
-    
-    # ৪. অতিরিক্ত স্পেস বা হাইফেন পরিষ্কার করা
     name = re.sub(r'\s*-\s*$', '', name)
     name = name.replace("__", "_").replace("..", ".").replace("  ", " ")
-    
     if not name.strip():
          name = "Movie File"
     return name.strip()
 
-# --- ৫ মিনিট পর ফাইল স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
+# --- ৫ মিনিট পর পাঠানো ফাইলটি স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_file(message: Message):
     await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
     try:
         await message.delete()
+    except:
+        pass
+
+# --- ৫ মিনিট পর ইউজারের সার্চ এবং বটের বাটন মেসেজ ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক (নতুন) ---
+async def auto_delete_search_messages(user_msg: Message, bot_msg: Message):
+    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
+    try:
+        await user_msg.delete()
+    except:
+        pass
+    try:
+        await bot_msg.delete()
     except:
         pass
 
@@ -59,7 +63,7 @@ async def main_handler(client: Client, message: Message):
     if message.chat.type == ChatType.PRIVATE:
         if text.startswith("/start"):
             
-            # --- ১. ফোর্স সাবস্ক্রিপশন চেক (এডমিন ছাড়া সবার জন্য) ---
+            # --- ১. ফোর্স সাবস্ক্রিপশন চেক ---
             if user_id != config.ADMIN_ID:
                 try:
                     await client.get_chat_member(config.MAIN_CHANNEL_ID, user_id)
@@ -99,7 +103,7 @@ async def main_handler(client: Client, message: Message):
                                 f"📢 **চ্যানেল লিংকসমূহ নিচে দেওয়া হলো:**\n"
                                 f"👉 আমাদের সাথে ব্যাকআপ চ্যানেলে যুক্ত থাকুন।\n\n"
                                 f"⚠️ **নিরাপত্তা সতর্কবার্তা:**\n"
-                                f"কпиরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
+                                f"কপিরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
                             )
                             
                             promo_buttons = [
@@ -114,6 +118,9 @@ async def main_handler(client: Client, message: Message):
                                 reply_markup=InlineKeyboardMarkup(promo_buttons)
                             )
                             asyncio.create_task(auto_delete_file(sent_file))
+                            
+                            # ৫ মিনিট পর ইউজারের পাঠানো /start এবং স্বাগত বার্তাও ডিলিট করে দেওয়া হচ্ছে
+                            asyncio.create_task(auto_delete_search_messages(message, sent_file))
                         except Exception as e:
                             await message.reply_text(f"❌ দুঃখিত, ফাইলটি পাঠানো যাচ্ছে না: {str(e)}")
                     else:
@@ -136,15 +143,18 @@ async def main_handler(client: Client, message: Message):
                                 web_app=WebAppInfo(url=web_app_url)
                             )]
                         ]
-                        await message.reply_text(
+                        app_msg = await message.reply_text(
                             f"🎬 **ফাইলের নাম:** `{file_name}`\n\n"
                             f"👉 ফাইলটি ডাউনলোড করার জন্য নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি আনলক করুন।",
                             reply_markup=InlineKeyboardMarkup(buttons)
                         )
+                        # ৫ মিনিট পর ইউজারের গ্রুপ লিঙ্ক মেসেজ এবং মিনি অ্যাপ বাটনটি ডিলিট হবে
+                        asyncio.create_task(auto_delete_search_messages(message, app_msg))
                     else:
                         await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
                     return
 
+            # সাধারণ স্টার্ট কমান্ড
             try:
                 await add_user(message.from_user.id, message.from_user.username, message.from_user.first_name)
             except:
@@ -155,13 +165,15 @@ async def main_handler(client: Client, message: Message):
                 f"🎬 **CTG Movie সার্চ বটে আপনাকে স্বাগতম!**\n"
                 f"বটের ইনবক্সে সরাসরি যেকোনো মুভির নাম লিখে মেসেজ পাঠান।"
             )
-            await message.reply_text(welcome_text)
+            welcome_msg = await message.reply_text(welcome_text)
+            # ৫ মিনিট পর ইউজারের পাঠানো /start এবং স্বাগত বার্তা ডিলিট হবে
+            asyncio.create_task(auto_delete_search_messages(message, welcome_msg))
             return
 
         if text.startswith("/"):
             return
 
-        # --- সাধারণ সার্চ কুয়েরি (PM চ্যাটে - Inline clean logic) ---
+        # --- সাধারণ সার্চ কুয়েরি (PM চ্যাটে) ---
         query = text
         cleaned_text = text.lower().replace(".", " ").replace("-", " ")
         noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
@@ -176,10 +188,15 @@ async def main_handler(client: Client, message: Message):
         
         if not results:
             await search_msg.edit_text(f"❌ দুঃখিত, **'{query}'** নামের কোনো ফাইল পাওয়া যায়নি।")
+            # মুভি না পাওয়া গেলেও ৫ মিনিট পর ইউজারের সার্চ এবং বটের নো-ফাইল মেসেজ ডিলিট হবে
+            asyncio.create_task(auto_delete_search_messages(message, search_msg))
             return
 
         await search_msg.delete()
-        await send_search_results(message, results, query, page=0, lang="all")
+        results_msg = await send_search_results(message, results, query, page=0, lang="all")
+        
+        # ৫ মিনিট পর ইউজারের সার্চ কুয়েরি এবং সার্চ রেজাল্ট বাটন উভয়ই ডিলিট হবে (চ্যাট ফ্রেশ রাখার জন্য)
+        asyncio.create_task(auto_delete_search_messages(message, results_msg))
 
     # ==========================================
     # --- খ. গ্রুপ চ্যাট হ্যান্ডলার (Auto-Filter Group Mode) ---
@@ -188,7 +205,6 @@ async def main_handler(client: Client, message: Message):
         if text.startswith("/"):
             return
             
-        # Inline clean logic (গ্রুপের জন্য)
         query = text
         cleaned_text = text.lower().replace(".", " ").replace("-", " ")
         noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
@@ -250,9 +266,9 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
         back_btn = [[InlineKeyboardButton("🔙 Reset Filter", callback_data=f"lang|0|all|{query}")]]
         try:
             if isinstance(message_or_query, Message):
-                await message_or_query.reply_text(text_no_file, reply_markup=InlineKeyboardMarkup(back_btn))
+                return await message_or_query.reply_text(text_no_file, reply_markup=InlineKeyboardMarkup(back_btn))
             else:
-                await message_or_query.message.edit_text(text_no_file, reply_markup=InlineKeyboardMarkup(back_btn))
+                return await message_or_query.message.edit_text(text_no_file, reply_markup=InlineKeyboardMarkup(back_btn))
         except MessageNotModified:
             pass
         return
@@ -313,9 +329,9 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     
     try:
         if isinstance(message_or_query, Message):
-            await message_or_query.reply_text(text, reply_markup=reply_markup)
+            return await message_or_query.reply_text(text, reply_markup=reply_markup)
         else:
-            await message_or_query.message.edit_text(text, reply_markup=reply_markup)
+            return await message_or_query.message.edit_text(text, reply_markup=reply_markup)
     except MessageNotModified:
         pass
 
