@@ -17,6 +17,8 @@ except RuntimeError:
 from pyrogram import Client
 import config
 
+# ২. আল্ট্রা-প্রিমিয়াম নিয়ন আরজিবি মিনি অ্যাপ টেমপ্লেট (Netflix/Glowing Style)
+# এখানে লাইভ মুভি ফাইল সংখ্যা, সক্রিয় ইউজার এবং মঙ্গোডিবির মেমরি কাউন্টার যুক্ত করা হয়েছে।
 HTML_TEMPLATE = Template("""
 <!DOCTYPE html>
 <html lang="en">
@@ -24,6 +26,7 @@ HTML_TEMPLATE = Template("""
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Movie</title>
+    <!-- টেলিগ্রামের অফিশিয়াল ওয়েব অ্যাপ স্ক্রিপ্ট -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
@@ -39,6 +42,7 @@ HTML_TEMPLATE = Template("""
             min-height: 95vh;
         }
         
+        /* আরজিবি পালসিং বর্ডার অ্যানিমেশন */
         @keyframes borderGlow {
             0% { border-color: rgba(255, 0, 85, 0.4); box-shadow: 0 0 15px rgba(255, 0, 85, 0.2); }
             50% { border-color: rgba(0, 240, 255, 0.4); box-shadow: 0 0 15px rgba(0, 240, 255, 0.2); }
@@ -63,10 +67,11 @@ HTML_TEMPLATE = Template("""
             font-size: 28px; 
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
+            letter-spacing: 1px;
             text-shadow: 0 0 12px rgba(255, 0, 85, 0.4);
         }
         
+        /* প্রফেশনাল ফাইল ইনফরমেশন কার্ড */
         .info-card {
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid rgba(255, 255, 255, 0.05);
@@ -86,6 +91,7 @@ HTML_TEMPLATE = Template("""
         .info-value { color: #ffffff; font-weight: 600; }
         .info-value.neon-green { color: #00ff88; text-shadow: 0 0 8px rgba(0, 255, 136, 0.2); }
         .info-value.neon-blue { color: #00f0ff; text-shadow: 0 0 8px rgba(0, 240, 255, 0.2); }
+        .info-value.neon-red { color: #ff0055; text-shadow: 0 0 8px rgba(255, 0, 85, 0.2); }
         
         .step-card {
             background: rgba(255, 255, 255, 0.04);
@@ -247,22 +253,27 @@ HTML_TEMPLATE = Template("""
     <div id="app-content" class="container" style="display: none;">
         <h2>CTG PREMIUM SEARCH</h2>
         
+        <!-- লাইভ স্ট্যাটাস ও মঙ্গোডিবি লাইভ স্টোরেজ মিটার সমৃদ্ধ ইনফরমেশন কার্ড -->
         <div class="info-card">
             <div class="info-row">
                 <span class="info-label">📊 Database Inventory:</span>
                 <span class="info-value neon-blue">$total_files+ Movies</span>
             </div>
             <div class="info-row">
-                <span class="info-label">👥 Active Connected Users:</span>
-                <span class="info-value neon-green">$total_users+ Online</span>
+                <span class="info-label">👥 Active Users:</span>
+                <span class="info-value neon-green">$total_users+ Connected</span>
             </div>
             <div class="info-row">
-                <span class="info-label">🚀 Server Port Speed:</span>
+                <span class="info-label">💾 Storage Used:</span>
+                <span class="info-value neon-red">$used_mb MB / 512 MB</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">📉 Free Storage Left:</span>
+                <span class="info-value neon-green">$free_mb MB ($free_percent% Free)</span>
+            </div>
+            <div class="info-row">
+                <span class="info-label">🌐 Server Port Speed:</span>
                 <span class="info-value">1 Gbps Unlimited</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">🌐 Server Status:</span>
-                <span class="info-value neon-green">Active Premium CDN</span>
             </div>
         </div>
         
@@ -290,32 +301,35 @@ class DummyWebServer(SimpleHTTPRequestHandler):
             query_params = parse_qs(parsed_url.query)
             file_db_id = query_params.get("id", [""])[0]
             
-            # --- ডাইনামিক অ্যান্টি-ব্লক সল্টিং মেকানিজম ---
             base_ad = random.choice(config.DIRECT_AD_LINKS)
             rand_id = random.randint(100000, 999999)
             rand_click = random.randint(1000000, 9999999)
             
-            # লিংকের শেষে ডাইনামিক সল্ট বসানো হচ্ছে (যাতে প্রতিবার লিংকটি টেলিগ্রামের কাছে নতুন মনে হয়)
             if "?" in base_ad:
                 ad_link = f"{base_ad}&click_id={rand_click}&sub_id={rand_id}"
             else:
                 ad_link = f"{base_ad}?click_id={rand_click}&sub_id={rand_id}"
             
-            total_files, total_users = 0, 0
+            # --- মঙ্গোডিবি থেকে রিয়েল-টাইম লাইভ ডাটা ও মেমরি সংগ্রহ মেকানিজম ---
+            total_files, total_users, used_mb, free_mb, free_percent = 0, 0, 0.0, 512.0, 100.0
             if app.loop and app.loop.is_running():
                 try:
-                    from database import get_stats
-                    future = asyncio.run_coroutine_threadsafe(get_stats(), app.loop)
-                    total_files, total_users = future.result(timeout=2)
+                    from database import get_detailed_stats
+                    future = asyncio.run_coroutine_threadsafe(get_detailed_stats(), app.loop)
+                    total_files, total_users, used_mb, free_mb, free_percent = future.result(timeout=2)
                 except Exception as e:
                     print(f"Failed to fetch live stats: {e}")
             
+            # ডাইনামিক লাইভ ডাটা দিয়ে টেমপ্লেট রিপ্লেস
             response_html = HTML_TEMPLATE.safe_substitute(
                 file_db_id=file_db_id,
                 bot_username=config.BOT_USERNAME,
                 ad_link=ad_link,
                 total_files=f"{total_files:,}",
-                total_users=f"{total_users:,}"
+                total_users=f"{total_users:,}",
+                used_mb=used_mb,
+                free_mb=free_mb,
+                free_percent=free_percent
             )
             
             self.send_response(200)
@@ -331,7 +345,7 @@ class DummyWebServer(SimpleHTTPRequestHandler):
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), DummyWebServer)
-    print(f"ওয়েব সার্ভার চালু হয়েছে পোর্ট {port}-এ।")
+    print(f"ওয়েব সার্ভার এবং মিনি অ্যাপ পোর্ট {port}-এ চালু হয়েছে।")
     server.serve_forever()
 
 t = threading.Thread(target=run_web_server, daemon=True)
