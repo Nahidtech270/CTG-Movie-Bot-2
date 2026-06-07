@@ -56,34 +56,22 @@ async def auto_delete_group_reply(message: Message):
     except:
         pass
 
-# --- মাল্টি-ওয়ার্ড ক্যান্ডিডেট ম্যাচিং এআই স্পেলিং চেকার (২ লাখ ফাইলের জন্য চূড়ান্ত অপ্টিমাইজড) ---
+# --- আল্ট্রা-পাওয়ারফুল বানান ভুল সংশোধন সাজেশন মেকানিজম (যেকোনো শব্দের মিল পেলেই কাজ করবে) ---
 async def get_close_match_from_db(query: str):
     try:
         from database import files_col1, files_col2
         
-        # ১. সার্চ কোয়েরি থেকে ৩ অক্ষরের চেয়ে বড় শব্দগুলো আলাদা করা
+        # ৩ অক্ষরের চেয়ে বড় শব্দগুলো আলাদা করা
         words = [w for w in query.strip().split() if len(w) >= 3]
         if not words:
             return None
             
         name_map = {}
         
-        # ২. ডাইনামিক ফিল্টারিং লজিক (স্পেস ও নামের গোলমাল এড়াতে)
-        if len(words) >= 2:
-            # যদি একাধিক শব্দ থাকে, তবে প্রথম দুটি শব্দ একসাথে আছে এমন ফাইলগুলো খুঁজব (যেমন: 'poran' এবং 'jai')
-            # এটি 'Poran' মুভিকে বাদ দিয়ে সরাসরি 'Poran Jai Jaliya Re' খুঁজে বের করবে
-            query_filter = {
-                "$and": [
-                    {"file_name": {"$regex": re.escape(words[0]), "$options": "i"}},
-                    {"file_name": {"$regex": re.escape(words[1]), "$options": "i"}}
-                ]
-            }
-        else:
-            # যদি মাত্র ১টি শব্দের কোয়েরি হয়, তবে প্রথম ৩টি অক্ষর দিয়ে মিল খুঁজব
-            keyword = words[0][:3]
-            query_filter = {"file_name": {"$regex": re.escape(keyword), "$options": "i"}}
+        # জাদুকরী $or ফিল্টার: সার্চের যেকোনো ১টি শব্দের মিল পেলেই ডাটাবেজ থেকে ক্যান্ডিডেট নিয়ে আসবে
+        query_filter = {"$or": [{"file_name": {"$regex": re.escape(w), "$options": "i"}} for w in words]}
         
-        # ডাটাবেজ থেকে ক্যান্ডিডেট মুভি আনা (১০০০ লিমিট করা হয়েছে যাতে কোনো কোয়ালিটি মিস না হয়)
+        # ১ম ডাটাবেজ থেকে ক্যান্ডিডেট মুভি আনা
         cursor = files_col1.find(query_filter, {"file_name": 1}).limit(1000)
         async for doc in cursor:
             fname = doc.get("file_name")
@@ -105,7 +93,7 @@ async def get_close_match_from_db(query: str):
         # ইউজারের সার্চ কোয়েরি নরমাল করা হচ্ছে
         query_norm = query.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
         
-        # ক্লোজ ম্যাচ তুলনা করা (মিলি-সেকেন্ডে রেজাল্ট দেবে)
+        # ক্লোজ ম্যাচ তুলনা করা (এক ক্লিকে সঠিক ম্যাচটি খুঁজে বের করবে)
         matches = difflib.get_close_matches(query_norm, list(name_map.keys()), n=1, cutoff=0.35)
         
         if matches:
@@ -187,7 +175,7 @@ async def main_handler(client: Client, message: Message):
                             ]
                             
                             sent_file = await client.send_cached_media(
-                                id=message.chat.id,
+                                chat_id=message.chat.id,
                                 file_id=file_data["file_id"],
                                 caption=caption_text,
                                 reply_markup=InlineKeyboardMarkup(promo_buttons)
