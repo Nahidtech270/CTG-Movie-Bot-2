@@ -12,6 +12,7 @@ import config
 
 FILES_PER_PAGE = 5
 
+# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (মুভির নাম ঠিক রেখে প্রমোশন লিংক ডিলিট করবে) ---
 def clean_movie_title(name: str) -> str:
     name = re.sub(r'@[a-zA-Z0-9_]+', '', name)
     name = re.sub(r'(https?://)?(t\.me|telegram\.me|telegram\.dog)/[a-zA-Z0-9_\+]+', '', name)
@@ -23,15 +24,17 @@ def clean_movie_title(name: str) -> str:
          name = "Movie File"
     return name.strip()
 
+# --- ৫ মিনিট পর ফাইল স্বয়ংক্রিয়ভাবে মুছে দেওয়ার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_file(message: Message):
-    await asyncio.sleep(300)
+    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
     try:
         await message.delete()
     except:
         pass
 
+# --- ৫ মিনিট পর ইউজারের সার্চ এবং বটের বাটন মেসেজ ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_search_messages(user_msg: Message, bot_msg: Message):
-    await asyncio.sleep(300)
+    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
     try:
         await user_msg.delete()
     except:
@@ -41,8 +44,9 @@ async def auto_delete_search_messages(user_msg: Message, bot_msg: Message):
     except:
         pass
 
+# --- গ্রুপে বটের রিপ্লাই ১ মিনিট পর ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_group_reply(message: Message):
-    await asyncio.sleep(60)
+    await asyncio.sleep(60) # ৬০ সেকেন্ড = ১ মিনিট
     try:
         await message.delete()
     except:
@@ -62,6 +66,17 @@ async def get_close_match_from_db(query: str):
     except Exception as e:
         print(f"Fuzzy match error: {e}")
         return None
+
+# --- নয়েজ ওয়ার্ড রিমুভার (ইউজার অতিরিক্ত শব্দ যেমন movie, full, hd লিখলে তা রিমুভ করবে) ---
+def clean_search_query(query: str) -> str:
+    cleaned = query.lower().replace(".", " ").replace("-", " ")
+    noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
+    words = cleaned.split()
+    if len(words) > 1:
+        cleaned_words = [w for w in words if w not in noise_words]
+        if cleaned_words:
+            return " ".join(cleaned_words)
+    return query
 
 
 @Client.on_message(filters.text)
@@ -245,13 +260,13 @@ async def main_handler(client: Client, message: Message):
                     reply_markup=InlineKeyboardMarkup(suggestion_buttons)
                 )
             else:
-                # যদি কোনো সাজেশনও না পাওয়া যায়, তবে "মুভি রিকোয়েস্ট" বাটন দেওয়া হবে (নতুন)
+                # যদি কোনো সাজেশনও না পাওয়া যায়, তবে "মুভি রিকোয়েস্ট" বাটন দেওয়া হবে
                 req_buttons = [
                     [InlineKeyboardButton("📢 Request Admin to Upload", callback_data=f"req|{query}")]
                 ]
                 await search_msg.edit_text(
                     f"❌ দুঃখিত, **'{query}'** নামের কোনো ফাইল পাওয়া যায়নি।\n\n"
-                    f"👉 আপনি চাইলে নিচের বাটনে ক্লিক করে এডমিনকে রিকোয়েস্ট পাঠাতে পারেন। মুভিটি আপলোড হওয়ার সাথে সাথে আপনার ইনবক্সে নোটিফিকেশন চলে যাবে।",
+                    f"👉 আপনি চাইলে নিচের বাটনে ক্লিক করে এডমিনকে রিকোয়েস্ট পাঠাতে পারেন। মুভিটি আপলোড হওয়ার সাথে সাথে আপনার ইনবক্সে নোটিফিকেশন চলে আসবে।",
                     reply_markup=InlineKeyboardMarkup(req_buttons)
                 )
                 
@@ -294,7 +309,6 @@ async def main_handler(client: Client, message: Message):
                 )
                 asyncio.create_task(auto_delete_group_reply(suggestion_msg))
             else:
-                # গ্রুপেও রিকোয়েস্ট বাটন শো করবে
                 req_buttons = [
                     [InlineKeyboardButton("📢 Request Admin", callback_data=f"req|{query}")]
                 ]
@@ -306,29 +320,12 @@ async def main_handler(client: Client, message: Message):
                 asyncio.create_task(auto_delete_group_reply(not_found_msg))
             return
             
-        buttons = []
-        for file in results[:5]:
-            file_name = clean_movie_title(file["file_name"])
-            file_size = round(file["file_size"] / (1024 * 1024), 2)
-            db_id = str(file["_id"])
-            searcher_id = message.from_user.id
-            
-            buttons.append([InlineKeyboardButton(
-                text=f"🎬 {file_name} [{file_size} MB]",
-                callback_data=f"gfile|{db_id}|{searcher_id}"
-            )])
-            
-        text_reply = (
-            f"🍿 **{message.from_user.mention}** এর খোঁজা মুভিটির **{len(results)}** টি রেজাল্ট পাওয়া গেছে।\n"
-            f"👇 মুভি ফাইলটি সরাসরি আপনার ইনবক্সে পেতে নিচের বাটনে ক্লিক করুন:\n\n"
-            f"⚠️ *এই মেসেজটি ১ মিনিট পর ডিলিট হয়ে যাবে।*"
-        )
-        
-        group_reply = await message.reply_text(text_reply, reply_markup=InlineKeyboardMarkup(buttons))
+        # গ্রুপ চ্যাটের ভেতরেই প্রথম পেজের ফলাফল প্রেরণ
+        group_reply = await send_group_results(message, results, query, page=0, searcher_id=user_id)
         asyncio.create_task(auto_delete_group_reply(group_reply))
 
 
-# সার্চ রেজাল্ট পেজ আকারে সাজানো এবং ল্যাঙ্গুয়েজ ফিল্টারিং বাটন জেনারেশন ফাংশন
+# সার্চ রেজাল্ট পেজ আকারে সাজানো এবং ল্যাঙ্গুয়েজ ফিল্টারিং বাটন জেনারেশন ফাংশন (PM চ্যাটের জন্য)
 async def send_search_results(message_or_query, results, query, page=0, lang="all"):
     lang = lang.lower()
     filtered_results = []
@@ -364,7 +361,6 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     end_index = start_index + FILES_PER_PAGE
     current_page_results = filtered_results[start_index:end_index]
     
-    # ইউআরএল স্যানিটাইজার
     raw_url = config.WEB_URL.strip()
     if raw_url.lower().startswith("https://"):
         raw_url = raw_url[8:]
@@ -423,11 +419,60 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
         pass
 
 
+# --- গ্রুপের ভেতরেই পেজিনেশন বাটন জেনারেট করার নতুন ফাংশন (নতুন) ---
+async def send_group_results(message_or_query, results, query, page=0, searcher_id=0):
+    total_results = len(results)
+    start_index = page * FILES_PER_PAGE
+    end_index = start_index + FILES_PER_PAGE
+    current_page_results = results[start_index:end_index]
+    
+    buttons = []
+    for file in current_page_results:
+        file_name = clean_movie_title(file["file_name"])
+        file_size = round(file["file_size"] / (1024 * 1024), 2)
+        db_id = str(file["_id"])
+        
+        # গ্রুপের বাটনগুলো ইউজার আইডিসহ লকড থাকবে
+        buttons.append([InlineKeyboardButton(
+            text=f"🎬 {file_name} [{file_size} MB]",
+            callback_data=f"gfile|{db_id}|{searcher_id}"
+        )])
+
+    # গ্রুপ চ্যাটের জন্য বিশেষ ইউজার-লকড নেভিগেশন বাটন
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("◀️ আগের", callback_data=f"gpage|{page - 1}|{query}|{searcher_id}"))
+    
+    total_pages = (total_results + FILES_PER_PAGE - 1) // FILES_PER_PAGE
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="pages_info"))
+    
+    if end_index < total_results:
+        nav_buttons.append(InlineKeyboardButton("পরের ▶️", callback_data=f"gpage|{page + 1}|{query}|{searcher_id}"))
+        
+    if nav_buttons:
+        buttons.append(nav_buttons)
+
+    reply_markup = InlineKeyboardMarkup(buttons)
+    text_reply = (
+        f"🍿 **SearchResult for: '{query}'**\n"
+        f"👇 মুভি ফাইলটি সরাসরি আপনার ইনবক্সে পেতে নিচের বাটনে ক্লিক করুন:\n\n"
+        f"⚠️ *এই মেসেজটি ১ মিনিট পর ডিলিট হয়ে যাবে।*"
+    )
+    
+    try:
+        if isinstance(message_or_query, Message):
+            return await message_or_query.reply_text(text_reply, reply_markup=reply_markup)
+        else:
+            return await message_or_query.message.edit_text(text_reply, reply_markup=reply_markup)
+    except MessageNotModified:
+        pass
+
+
 # ==========================================
 # --- গ. কলব্যাক কুয়েরি হ্যান্ডলার (Callback Handler) ---
 # ==========================================
 
-# ১. পেজ নেভিগেশন বাটন ক্লিক
+# ১. পেজ নেভিগেশন বাটন ক্লিক (PM চ্যাটের জন্য)
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -502,13 +547,12 @@ async def tsearch_click_handler(client: Client, callback_query):
     else:
         await callback_query.answer("দুঃখিত, কোনো ফাইল পাওয়া যায়নি!", show_alert=True)
 
-# ৬. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার (নতুন)
+# ৬. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার
 @Client.on_callback_query(filters.regex(r"^req\|"))
 async def request_movie_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
     user_id = callback_query.from_user.id
     
-    # ডাটাবেজে রিকোয়েস্টটি পেন্ডিং আকারে সেভ করা
     from database import save_movie_request
     saved = await save_movie_request(user_id, query)
     
@@ -521,3 +565,25 @@ async def request_movie_handler(client: Client, callback_query):
         )
     else:
         await callback_query.answer("⚠️ আপনি ইতিমধ্যেই এই মুভিটির রিকোয়েস্ট পাঠিয়েছেন!", show_alert=True)
+
+# --- ৭. গ্রুপ পেজ নেভিগেশন বাটন ক্লিক হ্যান্ডলার (ইউজার লকড - নতুন) ---
+@Client.on_callback_query(filters.regex(r"^gpage\|"))
+async def group_page_click_handler(client: Client, callback_query):
+    data = callback_query.data.split("|")
+    target_page = int(data[1])
+    query = data[2]
+    searcher_id = int(data[3])
+    clicker_id = callback_query.from_user.id
+    
+    # লকড চেক
+    if clicker_id != searcher_id:
+        await callback_query.answer(
+            "⚠️ দুঃখিত! এই পেজ পরিবর্তন করার ক্ষমতা শুধু সার্চকারীর রয়েছে। নিজে গ্রুপে নাম লিখে সার্চ করুন।", 
+            show_alert=True
+        )
+        return
+        
+    results = await search_db(query)
+    if results:
+        await send_group_results(callback_query, results, query, page=target_page, searcher_id=searcher_id)
+    await callback_query.answer()
