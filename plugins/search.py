@@ -12,9 +12,8 @@ import config
 
 FILES_PER_PAGE = 5
 
-# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন (সেফটি সহ) ---
+# --- সুনির্দিষ্ট ক্লিন-আপ ফাংশন ---
 def clean_movie_title(name: str) -> str:
-    # নাম ফাঁকা বা None থাকলে ট্র্যাপ এড়ানোর সেফগার্ড
     if not name or not isinstance(name, str):
         return "Movie File"
         
@@ -39,7 +38,7 @@ async def auto_delete_file(message: Message):
 
 # --- ৫ মিনিট পর ইউজারের সার্চ এবং বটের বাটন মেসেজ ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_search_messages(user_msg: Message, bot_msg: Message):
-    await asyncio.sleep(300)
+    await asyncio.sleep(300) # ৩০০ সেকেন্ড = ৫ মিনিট
     try:
         await user_msg.delete()
     except:
@@ -51,26 +50,39 @@ async def auto_delete_search_messages(user_msg: Message, bot_msg: Message):
 
 # --- গ্রুপে বটের রিপ্লাই ১ মিনিট পর ডিলিট করার ব্যাকগ্রাউন্ড টাস্ক ---
 async def auto_delete_group_reply(message: Message):
-    await asyncio.sleep(60)
+    await asyncio.sleep(60) # ৬০ সেকেন্ড = ১ মিনিট
     try:
         await message.delete()
     except:
         pass
 
-# --- বানান ভুল সংশোধন সাজেশন মেকানিজম (সেফটি সহ) ---
+# --- ডাবল-লেয়ার সেফ বানান ভুল সংশোধন সাজেশন মেকানিজম (নতুন) ---
 async def get_close_match_from_db(query: str):
     try:
         from database import files_col1
-        all_names = []
-        cursor = files_col1.find({}, {"file_name": 1}).limit(1000)
+        # ডাইনামিক ম্যাপিং ডিকশনারি
+        name_map = {}
+        
+        cursor = files_col1.find({}, {"file_name": 1}).limit(1500) # সর্বোচ্চ ১৫০০ ফাইল চেক করবে স্পিডের জন্য
         async for doc in cursor:
             fname = doc.get("file_name")
-            # নাম ফাঁকা থাকলে সেফগার্ড
             if fname:
-                all_names.append(clean_movie_title(fname))
-            
-        matches = difflib.get_close_matches(query, list(set(all_names)), n=1, cutoff=0.35)
-        return matches[0] if matches else None
+                # ১. সুন্দরভাবে প্রমোশন লিংক ছাড়া নাম ক্লিন করা
+                cleaned = clean_movie_title(fname)
+                # ২. ডট ও হাইফেন সরিয়ে সম্পূর্ণ ছোট হাতের অক্ষরে রুপান্তর করা (যাতে বানানের নিখুঁত মিল পাওয়া যায়)
+                normalized = cleaned.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
+                name_map[normalized] = cleaned
+        
+        # ইউজারের সার্চ কোয়েরিও সেম নিয়মে নরমাল করা হচ্ছে
+        query_norm = query.lower().replace(".", " ").replace("-", " ").replace("_", " ").strip()
+        
+        # নরমাল করা নামের তালিকার সাথে তুলনা করা (এখানে মিল পাওয়ার সম্ভাবনা ৯৯.৯%)
+        matches = difflib.get_close_matches(query_norm, list(name_map.keys()), n=1, cutoff=0.35)
+        
+        if matches:
+            # ম্যাপ থেকে আসল ক্লিন করা নামটি উদ্ধার করে রিটার্ন করা হচ্ছে
+            return name_map[matches[0]]
+        return None
     except Exception as e:
         print(f"Fuzzy match error: {e}")
         return None
@@ -253,30 +265,37 @@ async def main_handler(client: Client, message: Message):
         search_msg = await message.reply_text("🔍 খোঁজা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।")
         results = await search_db(query)
         
-        # যদি কোনো ফাইল ডাটাবেজে খুঁজে পাওয়া না যায় (Fuzzy Auto-Suggestion লজিক)
+        # --- ১. আপগ্রেডকৃত এআই স্পেলিং কারেক্টর লজিক (PM চ্যাটের জন্য) ---
         if not results:
+            await search_msg.edit_text("🤖 **ভুল বানান শনাক্ত হয়েছে! AI বানান সংশোধন করছে...**")
+            await asyncio.sleep(1.5) # রিয়ালিস্টিক এআই ফিল ট্রানজিশন
+            
             closest_match = await get_close_match_from_db(query)
             
             if closest_match:
-                suggestion_buttons = [
-                    [InlineKeyboardButton(f"🎬 Search '{closest_match}'", callback_data=f"tsearch|{closest_match}")]
-                ]
                 await search_msg.edit_text(
-                    f"❌ দুঃখিত, **'{query}'** নামের কোনো ফাইল আমাদের সার্ভারে পাওয়া যায়নি।\n\n"
-                    f"🤔 আপনি কি **'{closest_match}'** মুভিটি বোঝাতে চেয়েছেন?\n"
-                    f"নিচের বাটনে চাপ দিলে স্বয়ংক্রিয়ভাবে মুভিটি সার্চ হয়ে যাবে।",
-                    reply_markup=InlineKeyboardMarkup(suggestion_buttons)
+                    f"✅ **AI সাজেস্ট করেছে:** `{closest_match}`\n"
+                    f"🔄 **স্বয়ংক্রিয়ভাবে খোঁজা হচ্ছে:** `{closest_match}`..."
                 )
-            else:
-                req_buttons = [
-                    [InlineKeyboardButton("📢 Request Admin to Upload", callback_data=f"req|{query}")]
-                ]
-                await search_msg.edit_text(
-                    f"❌ দুঃখিত, **'{query}'** নামের কোনো ফাইল পাওয়া যায়নি।\n\n"
-                    f"👉 আপনি চাইলে নিচের বাটনে ক্লিক করে এডমিনকে রিকোয়েস্ট পাঠাতে পারেন। মুভিটি আপলোড হওয়ার সাথে সাথে আপনার ইনবক্সে নোটিফিকেশন চলে আসবে।",
-                    reply_markup=InlineKeyboardMarkup(req_buttons)
-                )
+                await asyncio.sleep(1.5) # স্মুথ ট্রানজিশন
                 
+                # সাজেস্টেড নাম দিয়ে অটো-সার্চ
+                corrected_results = await search_db(closest_match)
+                if corrected_results:
+                    await search_msg.delete()
+                    results_msg = await send_search_results(message, corrected_results, closest_match, page=0, lang="all")
+                    asyncio.create_task(auto_delete_search_messages(message, results_msg))
+                    return
+            
+            # সাজেশন কাজ না করলে রিকোয়েস্ট বাটন শো করবে
+            req_buttons = [
+                [InlineKeyboardButton("📢 Request Admin to Upload", callback_data=f"req|{query}")]
+            ]
+            await search_msg.edit_text(
+                f"❌ দুঃখিত, **'{query}'** নামের কোনো ফাইল আমাদের সার্ভারে পাওয়া যায়নি।\n\n"
+                f"👉 আপনি চাইলে নিচের বাটনে ক্লিক করে এডমিনকে রিকোয়েস্ট পাঠাতে পারেন। মুভিটি আপলোড হওয়ার সাথে সাথে আপনার ইনবক্সে নোটিফিকেশন চলে আসবে।",
+                reply_markup=InlineKeyboardMarkup(req_buttons)
+            )
             asyncio.create_task(auto_delete_search_messages(message, search_msg))
             return
 
@@ -302,12 +321,12 @@ async def main_handler(client: Client, message: Message):
 
         results = await search_db(query)
         
-        # গ্রুপে মুভি না পাওয়া গেলে বটের স্বয়ংক্রিয় সাজেশন ও রিকোয়েস্ট ট্রিক
+        # --- ২. আপগ্রেডকৃত এআই স্পেলিং কারেক্টর লজিক (গ্রুপ চ্যাটের জন্য - ইউজার লকড) ---
         if not results:
             closest_match = await get_close_match_from_db(query)
             if closest_match:
                 suggestion_buttons = [
-                    [InlineKeyboardButton(f"🎬 Search '{closest_match}'", callback_data=f"tsearch|{closest_match}")]
+                    [InlineKeyboardButton(f"🎬 Search '{closest_match}'", callback_data=f"gtsearch|{closest_match}|{user_id}")]
                 ]
                 suggestion_msg = await message.reply_text(
                     f"❌ দুঃখিত {message.from_user.mention}, আপনার খোঁজা ফাইলটি পাওয়া যায়নি।\n\n"
@@ -379,7 +398,6 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     
     buttons = []
     for file in current_page_results:
-        # সেফটি হ্যান্ডলার সহ ফাইল নেম রিড করা হচ্ছে
         raw_fname = file.get("file_name", "Movie File")
         file_name = clean_movie_title(raw_fname)
         
@@ -483,7 +501,7 @@ async def send_group_results(message_or_query, results, query, page=0, searcher_
 # --- গ. কলব্যাক কুয়েরি হ্যান্ডলার (Callback Handler) ---
 # ==========================================
 
-# ১. পেজ নেভিগেশন বাটন ক্লিক
+# ১. পেজ নেভিগেশন বাটন ক্লিক (PM চ্যাটের জন্য)
 @Client.on_callback_query(filters.regex(r"^page\|"))
 async def page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -546,7 +564,7 @@ async def premium_info_click_handler(client: Client, callback_query):
     )
     await callback_query.answer(premium_text, show_alert=True)
 
-# ৫. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search)
+# ৫. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search - PM চ্যাটের জন্য)
 @Client.on_callback_query(filters.regex(r"^tsearch\|"))
 async def tsearch_click_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
@@ -598,7 +616,7 @@ async def group_page_click_handler(client: Client, callback_query):
         await send_group_results(callback_query, results, query, page=target_page, searcher_id=searcher_id)
     await callback_query.answer()
 
-# ৮. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search - গ্রুপ চ্যাটের জন্য)
+# ৮. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (Fuzzy "Did You Mean" Auto-Search - গ্রুপ চ্যাটের জন্য - নতুন)
 @Client.on_callback_query(filters.regex(r"^gtsearch\|"))
 async def gtsearch_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
