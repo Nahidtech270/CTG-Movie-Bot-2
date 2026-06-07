@@ -4,12 +4,16 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 import config
-from database import save_file, get_active_files_collection
+from database import save_file
 
 INDEX_STATES = {}
 
-# রিকোয়েস্টকারী ইউজারকে মুভি আপলোড হওয়া মাত্র নোটিফাই করার টাস্ক
+# রিকোয়েস্টকারী ইউজারকে মুভি আপলোড হওয়া মাত্র নোটিফাই করার অটোমেটিক টাস্ক (সেফটি সহ)
 async def check_and_notify_requests(client: Client, file_name: str, file_db_id: str):
+    # নাম ফাঁকা থাকলে সেফগার্ড
+    if not file_name or not isinstance(file_name, str):
+        return
+        
     try:
         from database import db1
         requests_col = db1["requests"]
@@ -49,12 +53,16 @@ async def check_and_notify_requests(client: Client, file_name: str, file_db_id: 
         print(f"Request notify error: {e}")
 
 
-# মেইন চ্যানেলের অটো-ইনডেক্সিং
+# মেইন চ্যানেলের অটো-ইনডেক্সিং (সেফটি সহ)
 @Client.on_message(filters.chat(config.MAIN_CHANNEL_ID) & (filters.document | filters.video))
 async def auto_index(client: Client, message: Message):
     file = message.document or message.video
+    
+    # নাম ফাঁকা থাকলে সেফগার্ড
+    raw_fname = file.file_name if file.file_name else f"Video_File_{file.file_size}"
+    
     saved = await save_file(
-        file_name=file.file_name,
+        file_name=raw_fname,
         file_size=file.file_size,
         file_id=file.file_id,
         chat_id=message.chat.id,
@@ -64,10 +72,10 @@ async def auto_index(client: Client, message: Message):
         from database import files_col1
         doc = await files_col1.find_one({"file_id": file.file_id})
         if doc:
-            asyncio.create_task(check_and_notify_requests(client, file.file_name, str(doc["_id"])))
+            asyncio.create_task(check_and_notify_requests(client, raw_fname, str(doc["_id"])))
 
 
-# ম্যানুয়াল ইনডেক্সিং (Turbo Speed Batch Method)
+# ম্যানুয়াল ইনডেক্সিং (Turbo Speed Batch Method - সেফটি সহ)
 @Client.on_message(filters.command("index") & filters.user(config.ADMIN_ID) & filters.private)
 async def index_start_cmd(client: Client, message: Message):
     INDEX_STATES[message.from_user.id] = True
@@ -99,11 +107,9 @@ async def process_index_forward(client: Client, message: Message):
     saved_count = 0
     skipped_count = 0  
     scanned_count = 0
-    
-    # ব্যাচ সাইজ ২০০ ক্যারেক্টার করা হয়েছে স্পিড বাড়াতে
     chunk_size = 200
     current_id = last_msg_id
-    last_edit_scanned_count = 0 # মেসেজ এডিট ট্র্যাকার
+    last_edit_scanned_count = 0 
 
     try:
         active_col = await get_active_files_collection()
@@ -111,8 +117,6 @@ async def process_index_forward(client: Client, message: Message):
         while current_id > 0:
             start_id = max(1, current_id - chunk_size + 1)
             msg_ids = list(range(start_id, current_id + 1))
-            
-            # ২০০টি মেসেজ এক ক্লিকে রিসিভ করা হচ্ছে
             messages_batch = await client.get_messages(chat_id, msg_ids)
             
             batch_files = []
@@ -122,20 +126,21 @@ async def process_index_forward(client: Client, message: Message):
                     continue
                 if msg.document or msg.video:
                     file = msg.document or msg.video
+                    # নাম ফাঁকা থাকলে সেফগার্ড
+                    raw_fname = file.file_name if file.file_name else f"Video_File_{file.file_size}"
+                    
                     batch_files.append({
-                        "file_name": file.file_name,
+                        "file_name": raw_fname,
                         "file_size": file.file_size,
                         "file_id": file.file_id,
                         "chat_id": chat_id,
                         "message_id": msg.id
                     })
 
-            # ডাটাবেজে বাল্ক বা একসাথে ২০০টি ফাইল সেভ করার লজিক (১টি রিকোয়েস্টে)
             if batch_files:
                 file_ids = [f["file_id"] for f in batch_files]
                 file_names = [f["file_name"] for f in batch_files]
                 
-                # একবারে ডাটাবেজ থেকে ডুপ্লিকেট লিস্ট খুঁজে বের করা
                 existing_docs = await active_col.find({
                     "$or": [
                         {"file_id": {"$in": file_ids}},
@@ -146,7 +151,6 @@ async def process_index_forward(client: Client, message: Message):
                 existing_ids = {d["file_id"] for d in existing_docs}
                 existing_name_sizes = {(d["file_name"], d["file_size"]) for d in existing_docs}
                 
-                # পাইথনের মেমরিতে ডুপ্লিকেট ফিল্টার
                 to_insert = []
                 for f in batch_files:
                     if f["file_id"] not in existing_ids and (f["file_name"], f["file_size"]) not in existing_name_sizes:
@@ -154,17 +158,14 @@ async def process_index_forward(client: Client, message: Message):
                     else:
                         skipped_count += 1
                 
-                # একসাথে সব ইউনিক ফাইল ডাটাবেজে সেভ (insert_many)
                 if to_insert:
                     await active_col.insert_many(to_insert)
                     saved_count += len(to_insert)
                     
-                    # ব্যাকগ্রাউন্ডে রিকোয়েস্টকারীদের নোটিফিকেশন পাঠানো (ফায়ার এন্ড ফরগেট)
                     for doc in to_insert:
                         doc_id = str(doc["_id"])
                         asyncio.create_task(check_and_notify_requests(client, doc["file_name"], doc_id))
 
-            # টেলিগ্রাম ফ্ল্যাড ওয়েট এড়াতে প্রতি ১০০০ মেসেজ স্ক্যান করার পর কেবল ১ বার মেসেজ এডিট হবে
             if scanned_count - last_edit_scanned_count >= 1000 or current_id <= chunk_size:
                 await status_msg.edit_text(
                     f"⏳ **মুভি ইনডেক্সিং চলমান রয়েছে (Turbo Speed ⚡️)...**\n\n"
@@ -174,7 +175,7 @@ async def process_index_forward(client: Client, message: Message):
                     f"⚙️ *বট বিরতিহীনভাবে রকেটের গতিতে কাজ করছে।*"
                 )
                 last_edit_scanned_count = scanned_count
-                await asyncio.sleep(1.2) # সেফটি রেট লিমিট বিরতি
+                await asyncio.sleep(1.2)
 
             current_id -= chunk_size
 
