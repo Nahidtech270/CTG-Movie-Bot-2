@@ -7,7 +7,8 @@ from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatType
 from pyrogram.errors import UserNotParticipant, MessageNotModified
-from database import search_db, get_file_by_db_id, add_user, save_movie_request
+# database থেকে is_premium_user ইম্পোর্ট করা হয়েছে
+from database import search_db, get_file_by_db_id, add_user, save_movie_request, is_premium_user
 import config
 
 FILES_PER_PAGE = 5
@@ -220,22 +221,59 @@ async def main_handler(client: Client, message: Message):
                     file_data = await get_file_by_db_id(file_db_id)
                     
                     if file_data:
-                        file_name = clean_movie_title(file_data["file_name"])
-                        raw_url = config.WEB_URL.strip().replace("https://", "").replace("http://", "").rstrip("/")
-                        web_app_url = f"https://{raw_url}/download?id={file_db_id}"
+                        # প্রিমিয়াম চেক করা হচ্ছে
+                        is_vip = await is_premium_user(user_id)
                         
-                        buttons = [
-                            [InlineKeyboardButton(
-                                text="🍿 Open Web App to Download",
-                                web_app=WebAppInfo(url=web_app_url)
-                            )]
-                        ]
-                        app_msg = await message.reply_text(
-                            f"🎬 **ফাইলের নাম:** `{file_name}`\n\n"
-                            f"👉 ফাইলটি ডাউনলোড করার জন্য নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি আনলক করুন।",
-                            reply_markup=InlineKeyboardMarkup(buttons)
-                        )
-                        asyncio.create_task(auto_delete_search_messages(message, app_msg))
+                        if is_vip:
+                            # প্রিমিয়াম ইউজারের জন্য সরাসরি ওয়ান-ক্লিক ফাইল ডেলিভারি (বিজ্ঞাপন বাইপাস)
+                            try:
+                                raw_name = file_data["file_name"]
+                                cleaned_name = clean_movie_title(raw_name)
+                                file_size = round(file_data["file_size"] / (1024 * 1024), 2)
+                                
+                                caption_text = (
+                                    f"👑 **ভিআইপি ডিরেক্ট ডেলিভারি (No Ads)** 👑\n\n"
+                                    f"🎬 **ফাইলের নাম:** `{cleaned_name}`\n"
+                                    f"💾 **ফাইলের সাইজ:** `{file_size} MB`\n\n"
+                                    f"📢 **চ্যানেল লিংকসমূহ নিচে দেওয়া হলো:**\n"
+                                    f"👉 আমাদের সাথে ব্যাকআপ চ্যানেলে যুক্ত থাকুন।\n\n"
+                                    f"⚠️ **নিরাপত্তা সতর্কবার্তা:**\n"
+                                    f"কপিরাইট এড়াতে এই ফাইলটি আগামী **৫ মিনিট** পর স্বয়ংক্রিয়ভাবে মুছে যাবে। দয়া করে এর মধ্যেই আপনার সেভড মেসেজে ফাইলটি ফরওয়ার্ড করে রাখুন।"
+                                )
+                                
+                                promo_buttons = [
+                                    [InlineKeyboardButton("🍿 All Movie Link", url=config.CHANNEL_LINK_1)],
+                                    [InlineKeyboardButton("📢 Join Backup Channel", url=config.CHANNEL_LINK_2)]
+                                ]
+                                
+                                sent_file = await client.send_cached_media(
+                                    chat_id=message.chat.id,
+                                    file_id=file_data["file_id"],
+                                    caption=caption_text,
+                                    reply_markup=InlineKeyboardMarkup(promo_buttons)
+                                )
+                                asyncio.create_task(auto_delete_file(sent_file))
+                                asyncio.create_task(auto_delete_search_messages(message, sent_file))
+                            except Exception as e:
+                                await message.reply_text(f"❌ দুঃখিত, ফাইলটি পাঠানো যাচ্ছে না: {str(e)}")
+                        else:
+                            # সাধারণ ফ্রি ইউজারের জন্য আগের মিনি অ্যাপের বাটন দেখাবে
+                            file_name = clean_movie_title(file_data["file_name"])
+                            raw_url = config.WEB_URL.strip().replace("https://", "").replace("http://", "").rstrip("/")
+                            web_app_url = f"https://{raw_url}/download?id={file_db_id}"
+                            
+                            buttons = [
+                                [InlineKeyboardButton(
+                                    text="🍿 Open Web App to Download",
+                                    web_app=WebAppInfo(url=web_app_url)
+                                )]
+                            ]
+                            app_msg = await message.reply_text(
+                                f"🎬 **ফাইলের নাম:** `{file_name}`\n\n"
+                                f"👉 ফাইলটি ডাউনলোড করার জন্য নিচের বাটনে ক্লিক করে বিজ্ঞাপনটি আনলক করুন।",
+                                reply_markup=InlineKeyboardMarkup(buttons)
+                            )
+                            asyncio.create_task(auto_delete_search_messages(message, app_msg))
                     else:
                         await message.reply_text("❌ দুঃখিত, ফাইলটি ডাটাবেজে খুঁজে পাওয়া যায়নি!")
                     return
@@ -465,6 +503,10 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
     if raw_url.endswith("/"):
         raw_url = raw_url[:-1]
     
+    # প্রিমিয়াম চেক করার জন্য ইউজার আইডি বের করা হচ্ছে
+    user_id = message_or_query.from_user.id if isinstance(message_or_query, Message) else message_or_query.from_user.id
+    is_vip = await is_premium_user(user_id)
+
     buttons = []
     for file in current_page_results:
         raw_fname = file.get("file_name", "Movie File")
@@ -472,12 +514,21 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
         
         file_size = round(file["file_size"] / (1024 * 1024), 2)
         db_id = str(file["_id"])
-        web_app_url = f"https://{raw_url}/download?id={db_id}"
         
-        buttons.append([InlineKeyboardButton(
-            text=f"🎬 {file_name} [{file_size} MB]",
-            web_app=WebAppInfo(url=web_app_url)
-        )])
+        if is_vip:
+            # প্রিমিয়াম ইউজারদের জন্য সরাসরি ওয়ান-ক্লিক ডিপলিংক বাটন (বিজ্ঞাপন ছাড়া ফাইল ডেলিভারি)
+            vip_direct_url = f"https://t.me/{config.BOT_USERNAME}?start=get_{db_id}"
+            buttons.append([InlineKeyboardButton(
+                text=f"🎬 {file_name} [{file_size} MB]",
+                url=vip_direct_url
+            )])
+        else:
+            # সাধারণ ফ্রি ইউজারদের জন্য মিনি অ্যাপ বাটন
+            web_app_url = f"https://{raw_url}/download?id={db_id}"
+            buttons.append([InlineKeyboardButton(
+                text=f"🎬 {file_name} [{file_size} MB]",
+                web_app=WebAppInfo(url=web_app_url)
+            )])
 
     nav_buttons = []
     if page > 0:
