@@ -27,7 +27,7 @@ DATABASE_URI2 = "mongodb+srv://..."
 
 # --- আর্নিং ও মিনি অ্যাপ কনফিগারেশন ---
 BOT_USERNAME = "CTGMovieBot"  # বটের ইউজারনেম ( শুরুতে @ দেবেন না)
-WEB_URL = "gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/CTG-Movie-Bot"  # Koyeb অ্যাপের লিংক ( শুরুতে https:// দেবেন না)
+WEB_URL = "gorgeous-ashla-ctgnahid-3b872c36.koyeb.app"  # Koyeb অ্যাপের লিংক ( শুরুতে https:// দেবেন না)
 
 # আপনার আয়ের ডিরেক্ট অ্যাড লিংকসমূহ (Adsterra এবং OMG10)
 DIRECT_AD_LINKS = [
