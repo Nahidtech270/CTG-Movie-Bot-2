@@ -4,7 +4,16 @@ import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import config
-from database import get_stats, delete_files_by_name, delete_all_files_from_db, get_all_users
+# database থেকে প্রিমিয়াম হ্যান্ডলিংয়ের নতুন ফাংশনগুলো ইম্পোর্ট করা হয়েছে
+from database import (
+    get_stats, 
+    delete_files_by_name, 
+    delete_all_files_from_db, 
+    get_all_users,
+    add_premium_user,       # নতুন ফাংশন
+    remove_premium_user,    # নতুন ফাংশন
+    get_all_premium_users   # নতুন ফাংশন
+)
 
 # একক এডমিনের পরিবর্তে মাল্টিপল এডমিন ফিল্টার (config.ADMINS তালিকা চেক করবে)
 is_admin = filters.create(lambda _, __, message: message.from_user and message.from_user.id in config.ADMINS)
@@ -53,3 +62,60 @@ async def broadcast_cmd(client: Client, message: Message):
         f"✅ সফলভাবে পাঠানো হয়েছে: `{success}` জন ইউজারকে\n"
         f"❌ ব্যর্থ হয়েছে (বট ব্লক করেছে): `{failed}` জন ইউজার"
     )
+
+# --- নতুন প্রিমিয়াম নিয়ন্ত্রণ কমান্ডসমূহ ---
+
+# ১. প্রিমিয়াম ইউজার যুক্ত করার কমান্ড
+@Client.on_message(filters.command("add_premium") & is_admin)
+async def add_premium_cmd(client: Client, message: Message):
+    if len(message.command) < 2 and not message.reply_to_message:
+        await message.reply_text("⚠️ **ব্যবহার বিধি:** `/add_premium [User_ID]` অথবা যেকোনো ইউজারের মেসেজে রিপ্লাই দিয়ে লিখুন `/add_premium`")
+        return
+    
+    user_id = None
+    if message.reply_to_message:
+        user_id = message.reply_to_message.from_user.id
+    else:
+        try:
+            user_id = int(message.command[1])
+        except ValueError:
+            await message.reply_text("⚠️ **ভুল আইডি!** দয়া করে সঠিক সংখ্যাসূচক ইউজার আইডি দিন।")
+            return
+    
+    # ডেটাবেজে প্রিমিয়াম স্ট্যাটাস আপডেট করা
+    await add_premium_user(user_id)
+    await message.reply_text(f"👑 **সফল হয়েছে!**\nইউজার আইডি `{user_id}` কে সফলভাবে প্রিমিয়াম (VIP) মেম্বার হিসেবে যুক্ত করা হয়েছে।")
+
+# ২. প্রিমিয়াম ইউজার রিমুভ করার কমান্ড
+@Client.on_message(filters.command("remove_premium") & is_admin)
+async def remove_premium_cmd(client: Client, message: Message):
+    if len(message.command) < 2 and not message.reply_to_message:
+        await message.reply_text("⚠️ **ব্যবহার বিধি:** `/remove_premium [User_ID]` অথবা যেকোনো ইউজারের মেসেজে রিপ্লাই দিয়ে লিখুন `/remove_premium`")
+        return
+    
+    user_id = None
+    if message.reply_to_message:
+        user_id = message.reply_to_message.from_user.id
+    else:
+        try:
+            user_id = int(message.command[1])
+        except ValueError:
+            await message.reply_text("⚠️ **ভুল আইডি!** দয়া করে সঠিক সংখ্যাসূচক ইউজার আইডি দিন।")
+            return
+    
+    # ডেটাবেজ থেকে প্রিমিয়াম স্ট্যাটাস বাতিল করা
+    await remove_premium_user(user_id)
+    await message.reply_text(f"❌ **রিমুভ করা হয়েছে!**\nইউজার আইডি `{user_id}` কে সফলভাবে প্রিমিয়াম মেম্বারশিপ থেকে বাদ দেওয়া হয়েছে।")
+
+# ৩. প্রিমিয়াম ইউজারদের তালিকা দেখার কমান্ড
+@Client.on_message(filters.command("premiums") & is_admin)
+async def premiums_list_cmd(client: Client, message: Message):
+    premium_users = await get_all_premium_users()
+    if not premium_users:
+        await message.reply_text("ℹ️ বর্তমানে ডাটাবেজে কোনো প্রিমিয়াম ইউজার যুক্ত নেই।")
+        return
+    
+    text = "👑 **প্রিমিয়াম (VIP) ইউজারদের তালিকা:**\n\n"
+    for idx, u_id in enumerate(premium_users, 1):
+        text += f"{idx}. `{u_id}`\n"
+    await message.reply_text(text)
