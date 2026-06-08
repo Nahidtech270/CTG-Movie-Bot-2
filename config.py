@@ -2,21 +2,22 @@
 import os
 from pyrogram import filters
 
+# --- বটের প্রধান এপিআই ক্রেডেনশিয়ালস ---
 API_ID = 29462738          # আপনার Telegram API ID (integer)
 API_HASH = "297f51aaab99720a09e80273628c3c24"  # আপনার Telegram API Hash (string)
 BOT_TOKEN = "8970571544:AAHkBPmDzF9crRDbeCq6-Z3RNqDpEe7i9QA"  # BotFather থেকে পাওয়া টোকেন
 
 # --- এডমিন কনফিগারেশন (মাল্টিপল এডমিন সাপোর্ট) ---
-# এখানে আপনার ও অন্য এডমিনদের টেলিগ্রাম আইডি কমা (,) দিয়ে বসিয়ে দিন।
-ADMINS = [8297458824,5370676246]  # উদাহরণ: [8297458824, 123456789, 987654321]
+# ব্র্যাকেটের ভেতরে আপনার ও অন্যান্য এডমিনদের টেলিগ্রাম আইডি কমা (,) দিয়ে যুক্ত করুন।
+ADMINS = [8297458824,5370676246]  # উদাহরণ: [8297458824, 12345678, 87654321]
 
-# বটের প্রধান মালিক বা প্রথম এডমিন (আগের ফাইলের সাথে সামঞ্জস্য রাখার জন্য এটি রাখা হয়েছে)
+# বটের প্রধান মালিক বা প্রথম এডমিন
 ADMIN_ID = ADMINS[0] if ADMINS else None
 
 # এডমিনদের জন্য পাইরোগ্রাম কাস্টম ফিল্টার
 is_admin = filters.create(lambda _, __, message: message.from_user and message.from_user.id in ADMINS)
 
-
+# --- চ্যানেল ও ডাটাবেজ আইডি ---
 MAIN_CHANNEL_ID = -1002439983925  # প্রধান মুভি চ্যানেল আইডি (ফোর্স সাবস্ক্রিপশন)
 
 # --- ডাবল ডাটাবেজ কনফিগারেশন ---
@@ -28,7 +29,7 @@ DATABASE_URI2 = "mongodb+srv://..."
 BOT_USERNAME = "CTGMovieBot"  # বটের ইউজারনেম ( শুরুতে @ দেবেন না)
 WEB_URL = "gorgeous-donetta-nahidcrk-7b84dba9.koyeb.app/view/CTG-Movie-Bot"  # Koyeb অ্যাপের লিংক ( শুরুতে https:// দেবেন না)
 
-# আপনার আয়ের ডিরেক্ট অ্যাড লিংকসমূহ (Adsterra এবং OMG10 এর সকল ডিরেক্ট লিংক সফলভাবে যুক্ত করা হয়েছে)
+# আপনার আয়ের ডিরেক্ট অ্যাড লিংকসমূহ (Adsterra এবং OMG10)
 DIRECT_AD_LINKS = [
     "https://www.effectivecpmnetwork.com/p4bm30ss3?key=8bb102e9258871570c79a9a90fa3cf9f",
     "https://www.effectivecpmnetwork.com/q5cpmxwy44?key=075b9f116b4174922cadfae2d3291743",
@@ -41,9 +42,12 @@ DIRECT_AD_LINKS = [
     "https://omg10.com/4/11063339"
 ]
 
-# --- আপনার নিজস্ব প্রমোশনাল চ্যানেল লিংকসমূহ ---
-CHANNEL_LINK_1 = "https://t.me/+6hvCoblt6CxhZjhl"  # All Movie Link
-CHANNEL_LINK_2 = "https://t.me/TGLinkBase"         # Backup Channel
+# --- বাটনগুলোর জন্য নিজস্ব প্রমোশনাল ও সোশ্যাল লিংকসমূহ ---
+CHANNEL_LINK_1 = "https://t.me/+6hvCoblt6CxhZjhl"       # 🍿 All Movies বাটন লিংক
+CHANNEL_LINK_2 = "https://t.me/TGLinkBase"              # 📢 Backup Channel বাটন লিংক
 
-# --- নতুন Visual ডিজাইন কনফিগারেশন ---
+GROUP_LINK = "https://t.me/Movie_Request_Group_23"           # 💬 Movie Group বাটন লিংক (আপনার গ্রুপের লিংক দিন)
+HOW_TO_USE_LINK = "https://t.me/HowtoDowlnoad"             # ❓ How to Use বাটন লিংক (টিউটোরিয়াল ভিডিও লিংক দিন)
+
+# --- নতুন ভিজ্যুয়াল ডিজাইন কনফিগারেশন ---
 START_BANNER = "https://files.catbox.moe/k9xrhs.jpg"
