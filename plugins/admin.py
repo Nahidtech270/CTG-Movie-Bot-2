@@ -6,7 +6,8 @@ from pyrogram.types import Message
 import config
 from database import get_stats, delete_files_by_name, delete_all_files_from_db, get_all_users
 
-is_admin = filters.user(config.ADMIN_ID)
+# একক এডমিনের পরিবর্তে মাল্টিপল এডমিন ফিল্টার (config.ADMINS তালিকা চেক করবে)
+is_admin = filters.create(lambda _, __, message: message.from_user and message.from_user.id in config.ADMINS)
 
 @Client.on_message(filters.command("stats") & is_admin)
 async def stats_cmd(client: Client, message: Message):
