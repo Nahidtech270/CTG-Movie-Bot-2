@@ -293,7 +293,7 @@ HTML_TEMPLATE = Template("""
 </html>
 """)
 
-# ২. প্রিমিয়াম (VIP) ইউজারদের জন্য নিওন গ্রিন স্পেশাল কনট্রোল ড্যাশবোর্ড (অ্যাড ছাড়া ২টি অপশন থাকবে)
+# ২. প্রিমিয়াম (VIP) ইউজারদের জন্য ড্যাশবোর্ড
 HTML_VIP_TEMPLATE = Template("""
 <!DOCTYPE html>
 <html lang="en">
@@ -317,7 +317,6 @@ HTML_VIP_TEMPLATE = Template("""
             min-height: 95vh;
         }
         
-        /* আরজিবি নিওন পালসিং বর্ডার অ্যানিমেশন */
         @keyframes vipGlow {
             0% { border-color: rgba(0, 255, 136, 0.4); box-shadow: 0 0 15px rgba(0, 255, 136, 0.2); }
             50% { border-color: rgba(0, 240, 255, 0.4); box-shadow: 0 0 15px rgba(0, 240, 255, 0.2); }
@@ -665,12 +664,19 @@ class DummyWebServer(SimpleHTTPRequestHandler):
                 else:
                     ad_link = f"{base_ad}?click_id={rand_click}&sub_id={rand_id}"
                 
+                # সংশোধিত লাইভ ডাটা রিড মেকানিজম (Unpacking issue fixed)
                 total_files, total_users, used_mb, free_mb, free_percent = 0, 0, 0.0, 512.0, 100.0
                 if app.loop and app.loop.is_running():
                     try:
                         from database import get_detailed_stats
                         future = asyncio.run_coroutine_threadsafe(get_detailed_stats(), app.loop)
-                        total_files, total_users, used_mb, free_mb, free_percent = future.result(timeout=2)
+                        stats_dict = future.result(timeout=2)
+                        
+                        total_files = stats_dict.get("total_files", 0)
+                        total_users = stats_dict.get("total_users", 0)
+                        used_mb = stats_dict.get("db1_used", 0.0)
+                        free_mb = stats_dict.get("db1_free", 512.0)
+                        free_percent = round((free_mb / 512.0) * 100, 1)
                     except Exception as e:
                         print(f"Failed to fetch live stats: {e}")
                 
