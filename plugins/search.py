@@ -7,8 +7,8 @@ from pyrogram import Client, filters, ContinuePropagation
 from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from pyrogram.enums import ChatType
 from pyrogram.errors import UserNotParticipant, MessageNotModified
-# database থেকে is_premium_user ইম্পোর্ট করা হয়েছে
-from database import search_db, get_file_by_db_id, add_user, save_movie_request, is_premium_user
+# database থেকে add_group ইম্পোর্ট করা হয়েছে
+from database import search_db, get_file_by_db_id, add_user, save_movie_request, is_premium_user, add_group
 import config
 
 FILES_PER_PAGE = 5
@@ -374,6 +374,9 @@ async def main_handler(client: Client, message: Message):
         if text.startswith("/"):
             return
             
+        # গ্রুপে মুভি সার্চ করলেই গ্রুপ আইডি ও নাম ডাটাবেজে অটো সেভ হবে
+        await add_group(message.chat.id, message.chat.title)
+            
         query = text
         cleaned_text = text.lower().replace(".", " ").replace("-", " ").replace("_", " ")
         noise_words = ["movie", "movies", "full", "hd", "bluray", "web-dl", "mkv", "mp4", "mubi", "bin", "muby", "mube"]
@@ -479,7 +482,7 @@ async def send_search_results(message_or_query, results, query, page=0, lang="al
         file_size = round(file["file_size"] / (1024 * 1024), 2)
         db_id = str(file["_id"])
         
-        # ইউজার ফ্রি বা প্রিমিয়াম—উভয়ের জন্যই একই ইউনিফর্ম বাটন ওপেন হবে, তবে ইউজার আইডি পাস হবে
+        # ইউজার ফ্রি বা প্রিমিয়াম—উভয়ের জন্যই একই বাটন ওপেন হবে, তবে ইউজার আইডি পাস হবে
         web_app_url = f"https://{raw_url}/download?id={db_id}&user_id={user_id}"
         buttons.append([InlineKeyboardButton(
             text=f"🎬 {file_name} [{file_size} MB]",
