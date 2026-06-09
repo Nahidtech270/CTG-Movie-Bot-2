@@ -1,31 +1,96 @@
 # plugins/admin.py
 
 import asyncio
+import time
+import psutil  # লাইভ র‌্যাম এবং সিপিইউ রিড করার জন্য
 from pyrogram import Client, filters
 from pyrogram.types import Message
 import config
-# database থেকে প্রিমিয়াম হ্যান্ডলিংয়ের নতুন ফাংশনগুলো ইম্পোর্ট করা হয়েছে
 from database import (
-    get_stats, 
+    get_detailed_stats, 
     delete_files_by_name, 
     delete_all_files_from_db, 
     get_all_users,
-    add_premium_user,       # নতুন ফাংশন
-    remove_premium_user,    # নতুন ফাংশন
-    get_all_premium_users   # নতুন ফাংশন
+    add_premium_user,
+    remove_premium_user,
+    get_all_premium_users
 )
 
-# একক এডমিনের পরিবর্তে মাল্টিপল এডমিন ফিল্টার (config.ADMINS তালিকা চেক করবে)
+# বটের আপটাইম হিসাব করার জন্য স্টার্ট টাইম রেকর্ড করা হলো
+START_TIME = time.time()
+
+# আপটাইম ফরম্যাট করার প্রফেশনাল ফাংশন
+def get_readable_time(seconds: int) -> str:
+    count = 0
+    ping_time = ""
+    time_list = []
+    time_suffix_list = ["s", "m", "h", "d"]
+    while count < 4:
+        count += 1
+        if count < 3:
+            remainder, result = divmod(seconds, 60)
+        else:
+            remainder, result = divmod(seconds, 24)
+        if seconds == 0 and remainder == 0:
+            break
+        time_list.append(int(result))
+        seconds = int(remainder)
+    for x in range(len(time_list)):
+        time_list[x] = str(time_list[x]) + time_suffix_list[x]
+    if len(time_list) == 4:
+        ping_time += time_list[3] + " " + time_list[2] + " " + time_list[1] + " " + time_list[0]
+    elif len(time_list) == 3:
+        ping_time += time_list[2] + " " + time_list[1] + " " + time_list[0]
+    elif len(time_list) == 2:
+        ping_time += time_list[1] + " " + time_list[0]
+    elif len(time_list) == 1:
+        ping_time += time_list[0]
+    else:
+        ping_time = "0s"
+    return ping_time
+
+# মাল্টিপল এডমিন ফিল্টার
 is_admin = filters.create(lambda _, __, message: message.from_user and message.from_user.id in config.ADMINS)
 
+# প্রফেশনাল আরজিবি গ্লোয়িং থিমড লাইভ স্ট্যাটাস স্ক্রিন (হুবহু স্ক্রিনশটের মতো)
 @Client.on_message(filters.command("stats") & is_admin)
 async def stats_cmd(client: Client, message: Message):
-    total_files, total_users = await get_stats()
-    await message.reply_text(
-        f"📊 **বটের লাইভ স্ট্যাটাস:**\n\n"
-        f"👥 মোট ইউজার: `{total_users}` জন\n"
-        f"📁 মোট মুভি ফাইল: `{total_files}` টি"
+    # ডাটাবেজ থেকে ডিটেইলড ডাটা সংগ্রহ
+    data = await get_detailed_stats()
+    
+    # সার্ভার মেমোরি ও আপটাইম সংগ্রহ
+    uptime = get_readable_time(int(time.time() - START_TIME))
+    ram_usage = psutil.virtual_memory().percent
+    cpu_usage = psutil.cpu_percent()
+    
+    stats_text = (
+        f"╭────[ 🗃 ᴅᴀᴛᴀʙᴀsᴇ 1 🗃 ] ────⍟\n"
+        f"│\n"
+        f"├⋟ ᴀʟʟ ᴜsᴇʀs ⋟ `{data['total_users']}`\n"
+        f"├⋟ ᴀʟʟ ɢʀᴏᴜᴘs ⋟ `{data['total_groups']}`\n"
+        f"├⋟ ᴘʀᴇᴍɪᴜᴍ ᴜꜱᴇʀꜱ ⋟ `{data['premium_users']}`\n"
+        f"├⋟ ᴀʟʟ ꜰɪʟᴇs ⋟ `{data['db1_files']}`\n"
+        f"├⋟ ᴜsᴇᴅ sᴛᴏʀᴀɢᴇ ⋟ `{data['db1_used']} MB`\n"
+        f"├⋟ ꜰʀᴇᴇ sᴛᴏʀᴀɢᴇ ⋟ `{data['db1_free']} MB`\n"
+        f"│\n"
+        f"├────[ 🗳 ᴅᴀᴛᴀʙᴀsᴇ 2 🗳 ]────⍟\n"
+        f"│\n"
+        f"├⋟ ᴀʟʟ ꜰɪʟᴇs ⋟ `{data['db2_files']}`\n"
+        f"├⋟ ꜱɪᴢᴇ ⋟ `{data['db2_used']} MB`\n"
+        f"├⋟ ꜰʀᴇᴇ ⋟ `{data['db2_free']} MB`\n"
+        f"│\n"
+        f"├────[ 🤖 ʙᴏᴛ ᴅᴇᴛᴀɪʟs 🤖 ]────⍟\n"
+        f"│\n"
+        f"├⋟ ᴜᴘᴛɪᴍᴇ ⋟ `{uptime}`\n"
+        f"├⋟ ʀᴀᴍ ⋟ `{ram_usage}%`\n"
+        f"├⋟ ᴄᴘᴜ ⋟ `{cpu_usage}%`\n"
+        f"│\n"
+        f"├⋟ ʙᴏᴛʜ ᴅʙ ꜰɪʟᴇ'ꜱ: `{data['total_files']}`\n"
+        f"│\n"
+        f"╰─────────────────────⍟"
     )
+    
+    await message.reply_text(stats_text)
 
 @Client.on_message(filters.command("delete") & is_admin)
 async def delete_cmd(client: Client, message: Message):
@@ -63,9 +128,7 @@ async def broadcast_cmd(client: Client, message: Message):
         f"❌ ব্যর্থ হয়েছে (বট ব্লক করেছে): `{failed}` জন ইউজার"
     )
 
-# --- নতুন প্রিমিয়াম নিয়ন্ত্রণ কমান্ডসমূহ ---
-
-# ১. প্রিমিয়াম ইউজার যুক্ত করার কমান্ড
+# --- প্রিমিয়াম নিয়ন্ত্রণ কমান্ডসমূহ ---
 @Client.on_message(filters.command("add_premium") & is_admin)
 async def add_premium_cmd(client: Client, message: Message):
     if len(message.command) < 2 and not message.reply_to_message:
@@ -82,11 +145,9 @@ async def add_premium_cmd(client: Client, message: Message):
             await message.reply_text("⚠️ **ভুল আইডি!** দয়া করে সঠিক সংখ্যাসূচক ইউজার আইডি দিন।")
             return
     
-    # ডেটাবেজে প্রিমিয়াম স্ট্যাটাস আপডেট করা
     await add_premium_user(user_id)
     await message.reply_text(f"👑 **সফল হয়েছে!**\nইউজার আইডি `{user_id}` কে সফলভাবে প্রিমিয়াম (VIP) মেম্বার হিসেবে যুক্ত করা হয়েছে।")
 
-# ২. প্রিমিয়াম ইউজার রিমুভ করার কমান্ড
 @Client.on_message(filters.command("remove_premium") & is_admin)
 async def remove_premium_cmd(client: Client, message: Message):
     if len(message.command) < 2 and not message.reply_to_message:
@@ -103,11 +164,9 @@ async def remove_premium_cmd(client: Client, message: Message):
             await message.reply_text("⚠️ **ভুল আইডি!** দয়া করে সঠিক সংখ্যাসূচক ইউজার আইডি দিন।")
             return
     
-    # ডেটাবেজ থেকে প্রিমিয়াম স্ট্যাটাস বাতিল করা
     await remove_premium_user(user_id)
     await message.reply_text(f"❌ **রিমুভ করা হয়েছে!**\nইউজার আইডি `{user_id}` কে সফলভাবে প্রিমিয়াম মেম্বারশিপ থেকে বাদ দেওয়া হয়েছে।")
 
-# ৩. প্রিমিয়াম ইউজারদের তালিকা দেখার কমান্ড
 @Client.on_message(filters.command("premiums") & is_admin)
 async def premiums_list_cmd(client: Client, message: Message):
     premium_users = await get_all_premium_users()
