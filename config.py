@@ -49,6 +49,7 @@ CHANNEL_LINK_2 = "https://t.me/TGLinkBase"              # 📢 Backup Channel �
 
 GROUP_LINK = "https://t.me/Movie_Request_Group_23"           # 💬 Movie Group বাটন লিংক (আপনার গ্রুপের লিংক দিন)
 HOW_TO_USE_LINK = "https://t.me/HowtoDowlnoad"             # ❓ How to Use বাটন লিংক (টিউটোরিয়াল ভিডিও লিংক দিন)
+DEVELOPER_LINK = "https://t.me/ProBotDeveloperBot"     # 👨‍💻 Owner & Developer বাটন লিংক (এখানে আপনার নিজের ইউজারনেম বসিয়ে দিন)
 
 # --- নতুন ভিজ্যুয়াল ডিজাইন কনফিগারেশন ---
 START_BANNER = "https://files.catbox.moe/k9xrhs.jpg"
