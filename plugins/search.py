@@ -161,7 +161,44 @@ async def advanced_search_db(query: str):
 @Client.on_message(filters.text)
 async def main_handler(client: Client, message: Message):
     text = message.text.strip()
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+
+    # ==========================================
+    # --- এডমিন চ্যাট/চ্যানেল থেকে আসা কাস্টম রিপ্লাই হ্যান্ডলার ---
+    # ==========================================
+    if message.reply_to_message:
+        parent_msg = message.reply_to_message
+        if parent_msg.text and "(রিকোয়েস্ট আইডি:" in parent_msg.text:
+            match_id = re.search(r"\(রিকোয়েস্ট আইডি:\s*`(\d+)`\)", parent_msg.text)
+            if match_id:
+                target_user_id = int(match_id.group(1))
+                custom_text = text
+                
+                movie_name = "Requested Movie"
+                match_movie = re.search(r"🎬\s*মুভি:\s*`([^`]+)`", parent_msg.text)
+                if match_movie:
+                    movie_name = match_movie.group(1)
+                
+                user_msg = (
+                    f"💬 **এডমিন আপনার রিকোয়েস্টের উত্তর দিয়েছেন!**\n\n"
+                    f"🎬 মুভি: `{movie_name}`\n"
+                    f"📢 উত্তর: **{custom_text}**"
+                )
+                
+                try:
+                    await client.send_message(chat_id=target_user_id, text=user_msg)
+                    await message.reply_text("✅ আপনার কাস্টম উত্তরটি ইউজারের কাছে পাঠানো হয়েছে।")
+                    
+                    # এডমিন চ্যানেলের মূল মেসেজের টেক্সট আপডেট
+                    base_text = parent_msg.text.split("✍️ **কাস্টম উত্তর:**")[0].strip()
+                    await parent_msg.edit_text(
+                        f"{base_text}\n\n"
+                        f"🔵 **স্ট্যাটাস:** কাস্টম উত্তর পাঠানো হয়েছে (উত্তরদাতা: {message.from_user.mention if message.from_user else 'Admin'})\n"
+                        f"💬 **উত্তর:** `{custom_text}`"
+                    )
+                except Exception as e:
+                    await message.reply_text(f"❌ ইউজারের কাছে মেসেজ পাঠানো যায়নি: {str(e)}")
+                return
 
     if text.startswith("/") and not text.startswith("/start"):
         raise ContinuePropagation
@@ -700,11 +737,13 @@ async def tsearch_click_handler(client: Client, callback_query):
     else:
         await callback_query.answer("দুঃখিত, কোনো ফাইল পাওয়া যায়নি!", show_alert=True)
 
-# ৬. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার
+# ৬. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার এবং এডমিন নোটিফিকেশন সিস্টেম
 @Client.on_callback_query(filters.regex(r"^req\|"))
 async def request_movie_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
     user_id = callback_query.from_user.id
+    username = f"@{callback_query.from_user.username}" if callback_query.from_user.username else "নেই"
+    first_name = callback_query.from_user.first_name or "ইউজার"
     
     from database import save_movie_request
     saved = await save_movie_request(user_id, query)
@@ -716,10 +755,124 @@ async def request_movie_handler(client: Client, callback_query):
             f"🎬 মুভির নাম: `{query}`\n\n"
             f"👉 এডমিন মুভিটি আপলোড করার সাথে সাথে আপনার ইনবক্সে নোটিফিকেশন চলে আসবে।"
         )
+        
+        # এডমিন চ্যানেলে পাঠানোর জন্য মেসেজ ফরম্যাট
+        log_text = (
+            f"🍿 **নতুন মুভি রিকোয়েস্ট এসেছে!**\n\n"
+            f"👤 **ইউজার:** [{first_name}](tg://user?id={user_id})\n"
+            f"🔗 **ইউজারনেম:** {username}\n"
+            f"🎬 **মুভি:** `{query}`\n\n"
+            f"🆔 **(রিকোয়েস্ট আইডি: `{user_id}`)**"
+        )
+        
+        admin_buttons = [
+            [
+                InlineKeyboardButton("🚫 রিলিজ হয়নি", callback_data=f"admin_req|not_released|{user_id}"),
+                InlineKeyboardButton("❌ বানান ভুল", callback_data=f"admin_req|wrong_sp|{user_id}")
+            ],
+            [
+                InlineKeyboardButton("🟢 আপলোড হয়েছে", callback_data=f"admin_req|uploaded|{user_id}"),
+                InlineKeyboardButton("✍️ কাস্টম মেসেজ", callback_data=f"admin_req|custom|{user_id}")
+            ]
+        ]
+        
+        # config.LOG_CHANNEL এ মেসেজ পাঠানো হচ্ছে
+        if hasattr(config, "LOG_CHANNEL") and config.LOG_CHANNEL:
+            try:
+                await client.send_message(
+                    chat_id=config.LOG_CHANNEL,
+                    text=log_text,
+                    reply_markup=InlineKeyboardMarkup(admin_buttons)
+                )
+            except Exception as e:
+                print(f"Failed to send request to admin channel: {e}")
     else:
         await callback_query.answer("⚠️ আপনি ইতিমধ্যেই এই মুভিটির রিকোয়েস্ট পাঠিয়েছেন!", show_alert=True)
 
-# ৭. গ্রুপ পেজ নেভিগেশন বাটন ক্লিক হ্যান্ডলার (ইউজার লকড)
+# ৭. এডমিনদের বাটনে ক্লিক হ্যান্ডলার (এডমিন চ্যানেল অ্যাকশন)
+@Client.on_callback_query(filters.regex(r"^admin_req\|"))
+async def admin_request_action_handler(client: Client, callback_query):
+    data = callback_query.data.split("|")
+    action = data[1]
+    target_user_id = int(data[2])
+    
+    # এডমিন চ্যানেলের টেক্সট থেকে মুভির নামটি পার্স করা হচ্ছে
+    msg_text = callback_query.message.text
+    movie_name = "Requested Movie"
+    match = re.search(r"🎬\s*মুভি:\s*`([^`]+)`", msg_text)
+    if match:
+        movie_name = match.group(1)
+        
+    if action == "not_released":
+        user_msg = (
+            f"⚠️ **মুভি রিকোয়েস্ট আপডেট!**\n\n"
+            f"🎬 মুভি: `{movie_name}`\n"
+            f"📢 স্ট্যাটাস: **মুভিটি এখনো ওটিটি বা থিয়েটারে রিলিজ হয়নি।**\n\n"
+            f"রিলিজ হওয়ার পর আমাদের ডাটাবেজে যুক্ত করে দেওয়া হবে। ধন্যবাদ!"
+        )
+        try:
+            await client.send_message(chat_id=target_user_id, text=user_msg)
+            await callback_query.answer("✅ ইউজারকে রিলিজ না হওয়ার বিষয়টি জানানো হয়েছে।", show_alert=True)
+            
+            # এডমিন মেসেজ আপডেট
+            await callback_query.message.edit_text(
+                f"{msg_text}\n\n"
+                f"🔴 **স্ট্যাটাস:** রিলিজ হয়নি (উত্তরদাতা: {callback_query.from_user.mention})"
+            )
+        except Exception as e:
+            await callback_query.answer(f"❌ ইউজারকে মেসেজ পাঠানো যায়নি: {str(e)}", show_alert=True)
+            
+    elif action == "wrong_sp":
+        user_msg = (
+            f"❌ **মুভি রিকোয়েস্ট আপডেট!**\n\n"
+            f"🎬 মুভি: `{movie_name}`\n"
+            f"📢 স্ট্যাটাস: **বানান ভুল ছিল।**\n\n"
+            f"দয়া করে গুগল অথবা উইকিপিডিয়া থেকে সঠিক নাম দেখে আবার রিকোয়েস্ট করুন।"
+        )
+        try:
+            await client.send_message(chat_id=target_user_id, text=user_msg)
+            await callback_query.answer("✅ ইউজারকে বানান ভুলের বিষয়টি জানানো হয়েছে।", show_alert=True)
+            
+            # এডমিন মেসেজ আপডেট
+            await callback_query.message.edit_text(
+                f"{msg_text}\n\n"
+                f"🟡 **স্ট্যাটাস:** বানান ভুল (উত্তরদাতা: {callback_query.from_user.mention})"
+            )
+        except Exception as e:
+            await callback_query.answer(f"❌ ইউজারকে মেসেজ পাঠানো যায়নি: {str(e)}", show_alert=True)
+            
+    elif action == "uploaded":
+        user_msg = (
+            f"🎉 **মুভি রিকোয়েস্ট আপডেট!**\n\n"
+            f"🎬 মুভি: `{movie_name}`\n"
+            f"📢 স্ট্যাটাস: **মুভিটি আপলোড করা হয়েছে!**\n\n"
+            f"🔍 এখনই বটের ইনবক্সে সঠিক নাম লিখে সার্চ করুন এবং ফাইলটি সংগ্রহ করুন।"
+        )
+        try:
+            await client.send_message(chat_id=target_user_id, text=user_msg)
+            await callback_query.answer("✅ ইউজারকে মুভি আপলোডের বিষয়টি জানানো হয়েছে।", show_alert=True)
+            
+            # এডমিন মেসেজ আপডেট
+            await callback_query.message.edit_text(
+                f"{msg_text}\n\n"
+                f"🟢 **স্ট্যাটাস:** আপলোড সম্পন্ন (উত্তরদাতা: {callback_query.from_user.mention})"
+            )
+        except Exception as e:
+            await callback_query.answer(f"❌ ইউজারকে মেসেজ পাঠানো যায়নি: {str(e)}", show_alert=True)
+            
+    elif action == "custom":
+        # কাস্টম উত্তরের জন্য এডমিনকে মেসেজ রিপ্লাই করতে বলা হচ্ছে
+        await callback_query.answer("✍️ কাস্টম উত্তর পাঠাতে এই মেসেজের 'Reply' তে আপনার টেক্সটটি লিখুন।", show_alert=True)
+        try:
+            await callback_query.message.edit_text(
+                f"{msg_text}\n\n"
+                f"✍️ **কাস্টম উত্তর:** এই মেসেজের 'Reply'-তে আপনার কাঙ্ক্ষিত উত্তরটি লিখুন।\n"
+                f"(রিকোয়েস্ট আইডি: `{target_user_id}`)"
+            )
+        except Exception:
+            pass
+
+# ৮. গ্রুপ পেজ নেভিগেশন বাটন ক্লিক হ্যান্ডলার (ইউজার লকড)
 @Client.on_callback_query(filters.regex(r"^gpage\|"))
 async def group_page_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
@@ -740,7 +893,7 @@ async def group_page_click_handler(client: Client, callback_query):
         await send_group_results(callback_query, results, matched_query, page=target_page, searcher_id=searcher_id)
     await callback_query.answer()
 
-# ৮. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (গ্রুপ চ্যাটের জন্য - ইউজার লকড)
+# ৯. সাজেস্টেড সার্চ ক্লিক হ্যান্ডলার (গ্রুপ চ্যাটের জন্য - ইউজার লকড)
 @Client.on_callback_query(filters.regex(r"^gtsearch\|"))
 async def gtsearch_click_handler(client: Client, callback_query):
     data = callback_query.data.split("|")
