@@ -19,7 +19,7 @@ is_admin = filters.create(lambda _, __, message: message.from_user and message.f
 
 # --- চ্যানেল ও ডাটাবেজ আইডি ---
 MAIN_CHANNEL_ID = -1002439983925  # প্রধান মুভি চ্যানেল আইডি (ফোর্স সাবস্ক্রিপশন)
-LOG_CHANNEL = -100xxxxxxxxxx      # 👈 আপনার রিকোয়েস্ট নোটিফিকেশন বা লগ চ্যানেল আইডি এখানে বসান (যেমন: -100123456789)
+LOG_CHANNEL = -1003973741130      # 👈 আপনার রিকোয়েস্ট নোটিফিকেশন বা লগ চ্যানেল আইডি এখানে বসান (যেমন: -100123456789)
 
 # --- ডাবল ডাটাবেজ কনফিগারেশন ---
 DATABASE_URI = "mongodb+srv://hahema9427:hahema9427@cluster0.3mf49.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # আপনার ১ম MongoDB লিঙ্ক
