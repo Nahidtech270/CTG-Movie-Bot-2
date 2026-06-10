@@ -737,7 +737,7 @@ async def tsearch_click_handler(client: Client, callback_query):
     else:
         await callback_query.answer("দুঃখিত, কোনো ফাইল পাওয়া যায়নি!", show_alert=True)
 
-#6. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার এবং এডমিন নোটিফিকেশন সিস্টেম
+# ৬. মুভি রিকোয়েস্ট সেভ হ্যান্ডলার এবং এডমিন নোটিফিকেশন সিস্টেম
 @Client.on_callback_query(filters.regex(r"^req\|"))
 async def request_movie_handler(client: Client, callback_query):
     query = callback_query.data.split("|")[1]
@@ -761,8 +761,8 @@ async def request_movie_handler(client: Client, callback_query):
             f"🍿 **নতুন মুভি রিকোয়েস্ট এসেছে!**\n\n"
             f"👤 **ইউজার:** [{first_name}](tg://user?id={user_id})\n"
             f"🔗 **ইউজারনেম:** {username}\n"
-            f"🎬 **মুভি:** `{query}`\n\n"
-            f"🆔 **(রিকোয়েস্ট আইডি: `{user_id}`)**"
+            f"🎬 **মুভি:** {query}\n\n"
+            f"🆔 **(রিকোয়েস্ট আইডি: {user_id})**"
         )
         
         admin_buttons = [
@@ -796,12 +796,12 @@ async def admin_request_action_handler(client: Client, callback_query):
     action = data[1]
     target_user_id = int(data[2])
     
-    # এডমিন চ্যানেলের টেক্সট থেকে মুভির নামটি পার্স করা হচ্ছে
+    # এডমিন চ্যানেলের টেক্সট থেকে মুভির নামটি পার্স করা হচ্ছে (ব্যাকটিক ছাড়া)
     msg_text = callback_query.message.text
     movie_name = "Requested Movie"
-    match = re.search(r"🎬\s*মুভি:\s*`([^`]+)`", msg_text)
+    match = re.search(r"🎬\s*মুভি:\s*(.+)", msg_text)
     if match:
-        movie_name = match.group(1)
+        movie_name = match.group(1).strip()
         
     if action == "not_released":
         user_msg = (
@@ -867,7 +867,7 @@ async def admin_request_action_handler(client: Client, callback_query):
             await callback_query.message.edit_text(
                 f"{msg_text}\n\n"
                 f"✍️ **কাস্টম উত্তর:** এই মেসেজের 'Reply'-তে আপনার কাঙ্ক্ষিত উত্তরটি লিখুন।\n"
-                f"(রিকোয়েস্ট আইডি: `{target_user_id}`)"
+                f"(রিকোয়েস্ট আইডি: {target_user_id})"
             )
         except Exception:
             pass
